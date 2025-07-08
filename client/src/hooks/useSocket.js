@@ -3,6 +3,9 @@ import io from 'socket.io-client';
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
 
+// Check if we're in a production environment (Vercel deployment)
+const isProduction = process.env.NODE_ENV === 'production';
+
 export const useSocket = () => {
   const socketRef = useRef(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -18,16 +21,19 @@ export const useSocket = () => {
     if (typeof window === 'undefined') return;
 
     console.log('Attempting to connect to server at:', SERVER_URL);
+    console.log('Environment:', process.env.NODE_ENV);
 
     try {
       // Create socket connection with more robust options
       socketRef.current = io(SERVER_URL, {
-        transports: ['websocket', 'polling'],
+        transports: ['websocket', 'polling'], // Try WebSocket first, then fallback to polling
         reconnectionAttempts: maxReconnectAttempts,
         reconnectionDelay: 1000,
         timeout: 20000,
         autoConnect: true,
-        forceNew: false
+        forceNew: false,
+        secure: isProduction, // Force secure connections in production
+        rejectUnauthorized: false // Allow self-signed certificates
       });
 
       const socket = socketRef.current;
