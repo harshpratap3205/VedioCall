@@ -8,11 +8,14 @@ export const useSocket = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 5;
+  const maxReconnectAttempts = 10;
 
   useEffect(() => {
     // Clear any existing errors
     setConnectionError(null);
+
+    // Safety check for browser environment
+    if (typeof window === 'undefined') return;
 
     console.log('Attempting to connect to server at:', SERVER_URL);
 
@@ -22,7 +25,9 @@ export const useSocket = () => {
         transports: ['websocket', 'polling'],
         reconnectionAttempts: maxReconnectAttempts,
         reconnectionDelay: 1000,
-        timeout: 10000
+        timeout: 20000,
+        autoConnect: true,
+        forceNew: false
       });
 
       const socket = socketRef.current;

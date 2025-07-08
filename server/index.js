@@ -11,7 +11,7 @@ const server = http.createServer(app);
 // Configure CORS for Socket.io
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3001",
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
     methods: ["GET", "POST"]
   }
 });
@@ -172,7 +172,9 @@ io.on('connection', (socket) => {
       name: userName || `User-${socket.id.substring(0, 6)}`,
       socketId: socket.id,
       isAudioEnabled: true,
-      isVideoEnabled: roomType === 'video'
+      isVideoEnabled: roomType === 'video',
+      roomId: roomId, // Store roomId in user object
+      lastActive: Date.now() // Update last active timestamp
     };
     
     // Store user
@@ -338,35 +340,39 @@ io.on('connection', (socket) => {
     const user = users.get(socket.id);
     const roomId = socket.roomId;
     
-    if (roomId && rooms.has(roomId)) {
-      const room = rooms.get(roomId);
-      room.users.delete(socket.id);
-      
-      // Notify other users
-      socket.to(roomId).emit('user-left', {
-        userId: socket.id,
-        userName: user?.name,
-        userCount: room.users.size
-      });
-      
-      // Broadcast updated room info if room still exists
-      if (room.users.size > 0) {
-        io.emit('room-updated', {
-          id: roomId,
-          userCount: room.users.size,
-          createdAt: room.createdAt,
-          roomType: room.roomType
+    // Add a short delay before cleaning up to prevent race conditions
+    // between room join and connection establishment
+    setTimeout(() => {
+      if (roomId && rooms.has(roomId)) {
+        const room = rooms.get(roomId);
+        room.users.delete(socket.id);
+        
+        // Notify other users
+        io.to(roomId).emit('user-left', {
+          userId: socket.id,
+          userName: user?.name,
+          userCount: room.users.size
         });
-        console.log(`Room ${roomId} now has ${room.users.size} users`);
-      } else {
-        // Clean up empty rooms
-        rooms.delete(roomId);
-        io.emit('room-deleted', roomId);
-        console.log(`Room ${roomId} deleted (empty)`);
+        
+        // Broadcast updated room info if room still exists
+        if (room.users.size > 0) {
+          io.emit('room-updated', {
+            id: roomId,
+            userCount: room.users.size,
+            createdAt: room.createdAt,
+            roomType: room.roomType
+          });
+          console.log(`Room ${roomId} now has ${room.users.size} users`);
+        } else {
+          // Clean up empty rooms
+          rooms.delete(roomId);
+          io.emit('room-deleted', roomId);
+          console.log(`Room ${roomId} deleted (empty)`);
+        }
       }
-    }
-    
-    users.delete(socket.id);
+      
+      users.delete(socket.id);
+    }, 1000); // Add a 1-second delay
   });
 
   // Handle leave room
@@ -377,31 +383,40 @@ io.on('connection', (socket) => {
     if (roomId && rooms.has(roomId) && user) {
       const room = rooms.get(roomId);
       
-      room.users.delete(socket.id);
-      socket.leave(roomId);
-      
-      socket.to(roomId).emit('user-left', {
-        userId: socket.id,
-        userName: user.name,
-        userCount: room.users.size
-      });
-      
+      // Set room ID to null immediately to prevent new connections to this room
+      const oldRoomId = socket.roomId;
       socket.roomId = null;
+      socket.leave(oldRoomId);
       
-      // Broadcast updated room info if room still exists
-      if (room.users.size > 0) {
-        io.emit('room-updated', {
-          id: roomId,
-          userCount: room.users.size,
-          createdAt: room.createdAt,
-          roomType: room.roomType
-        });
-      } else {
-        // Clean up empty rooms
-        rooms.delete(roomId);
-        io.emit('room-deleted', roomId);
-        console.log(`Room ${roomId} deleted (empty)`);
-      }
+      // Add a short delay before cleaning up to prevent race conditions
+      setTimeout(() => {
+        if (rooms.has(oldRoomId)) {
+          const room = rooms.get(oldRoomId);
+          room.users.delete(socket.id);
+          
+          // Notify other users
+          io.to(oldRoomId).emit('user-left', {
+            userId: socket.id,
+            userName: user.name,
+            userCount: room.users.size
+          });
+          
+          // Broadcast updated room info if room still exists
+          if (room.users.size > 0) {
+            io.emit('room-updated', {
+              id: oldRoomId,
+              userCount: room.users.size,
+              createdAt: room.createdAt,
+              roomType: room.roomType
+            });
+          } else {
+            // Clean up empty rooms
+            rooms.delete(oldRoomId);
+            io.emit('room-deleted', oldRoomId);
+            console.log(`Room ${oldRoomId} deleted (empty)`);
+          }
+        }
+      }, 1000); // Add a 1-second delay
     }
   });
 });

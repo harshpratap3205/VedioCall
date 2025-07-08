@@ -7,7 +7,7 @@ const ICE_SERVERS = [
   { urls: 'stun:stun2.l.google.com:19302' },
 ];
 
-export const usePeerConnection = (socket, localStream) => {
+export const usePeerConnection = () => {
   const [remotePeers, setRemotePeers] = useState({});
   const [remoteStreams, setRemoteStreams] = useState({});
   const [connectionStatus, setConnectionStatus] = useState({});

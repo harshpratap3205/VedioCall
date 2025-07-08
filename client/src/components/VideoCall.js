@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useSocket } from '../hooks/useSocket';
@@ -194,14 +194,31 @@ const VideoCall = () => {
   const location = useLocation();
   const navigate = useNavigate();
   
+  // Component lifecycle tracking
+  const isMountedRef = useRef(true);
+  const hasJoinedRef = useRef(false);
+  const hasSetupEventHandlersRef = useRef(false);
+  const cleanupInProgressRef = useRef(false);
+  
   const [participants, setParticipants] = useState([]);
   const [userName] = useState(location.state?.userName || 'Anonymous');
   const [isConnecting, setIsConnecting] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
   const [toast, setToast] = useState(null);
+  const [isMediaReady, setIsMediaReady] = useState(false);
   
   // Custom hooks
-  const { socket, isConnected, connectionError: socketError, emit, on, off } = useSocket();
+  const { socket, isConnected, connectionError: socketError, emit: originalEmit, on, off } = useSocket();
+  
+  // Create a safe emit function that checks socket connection
+  const emit = useCallback((event, data) => {
+    if (!socket || !isConnected) {
+      console.warn(`Cannot emit ${event}: socket not initialized or not connected`);
+      return;
+    }
+    originalEmit(event, data);
+  }, [socket, isConnected, originalEmit]);
+  
   const { 
     localStream, 
     localVideoRef, 
@@ -230,7 +247,16 @@ const VideoCall = () => {
   } = usePeerConnection();
 
   const remoteVideoRefs = useRef(new Map());
-  const hasJoinedRef = useRef(false);
+
+  // Store handlers in refs to maintain stable identity
+  const handlersRef = useRef({
+    userJoined: null,
+    offer: null,
+    answer: null,
+    iceCandidate: null,
+    userLeft: null,
+    joinedRoom: null
+  });
 
   // Show toast notification
   const showToast = (message, type = 'info') => {
@@ -238,31 +264,48 @@ const VideoCall = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  // Track component mount status for safer effect cleanup
+  useEffect(() => {
+    isMountedRef.current = true;
+    
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Initialize room and media
   useEffect(() => {
+    // Don't do anything if the socket isn't connected
+    if (!socket || !isConnected) {
+      console.log("Waiting for socket connection...");
+      return;
+    }
+    
+    // Check if already initialized or cleanup is in progress to prevent re-joining
+    if (hasJoinedRef.current || cleanupInProgressRef.current) {
+      console.log("Room already initialized or cleanup in progress, skipping initialization");
+      return;
+    }
+    
     const initializeRoom = async () => {
-      if (hasJoinedRef.current) return;
-      
       try {
         setIsConnecting(true);
         setConnectionError(null);
         
         console.log("Starting room initialization...");
+        console.log("Socket connected, joining room:", roomId);
         
-        // Join room when socket is connected
-        if (socket && isConnected) {
-          console.log("Socket connected, joining room:", roomId);
-          emit('join-room', { roomId, userName });
-          hasJoinedRef.current = true;
-        } else {
-          console.error("Socket not connected!");
-          setConnectionError('Not connected to server. Please check your internet connection.');
-        }
+        // Socket is connected, so we can safely emit the join event
+        emit('join-room', { roomId, userName });
+        hasJoinedRef.current = true;
       } catch (error) {
         console.error('Error initializing room:', error);
         setConnectionError(error.message || 'Failed to initialize room');
+        hasJoinedRef.current = false;
       } finally {
-        setIsConnecting(false);
+        if (isMountedRef.current) {
+          setIsConnecting(false);
+        }
       }
     };
 
@@ -270,10 +313,20 @@ const VideoCall = () => {
 
     // Cleanup function
     return () => {
-      if (hasJoinedRef.current) {
+      // Prevent multiple cleanup calls
+      if (cleanupInProgressRef.current) return;
+      
+      if (hasJoinedRef.current && isMountedRef.current) {
+        cleanupInProgressRef.current = true;
         console.log("Cleaning up room connection...");
+        
         emit('leave-room');
         hasJoinedRef.current = false;
+        
+        // Reset cleanup flag after a short delay to allow for potential remounts
+        setTimeout(() => {
+          cleanupInProgressRef.current = false;
+        }, 500);
       }
     };
   }, [socket, isConnected, roomId, userName, emit]);
@@ -286,135 +339,203 @@ const VideoCall = () => {
           console.log("Getting user media...");
           await getUserMedia(true, true);
           console.log("Got user media successfully");
+          setIsMediaReady(true);
         } catch (error) {
           console.error('Error getting user media:', error);
           setConnectionError(error.message || 'Failed to access camera/microphone');
         }
+      } else {
+        // Media already initialized
+        setIsMediaReady(true);
       }
     };
 
     initializeMedia();
-  }, [getUserMedia]);
+    
+    // Clean up media when component unmounts
+    return () => {
+      // Only stop media if component is truly unmounting
+      if (!isMountedRef.current) {
+        setIsMediaReady(false);
+      }
+    };
+  }, [getUserMedia, localStream]);
 
   // Socket event handlers for WebRTC signaling
   useEffect(() => {
-    if (!socket || !isConnected) return;
+    // Wait for socket connection and media stream
+    if (!socket || !isConnected) {
+      console.log("WebRTC: Waiting for socket connection...");
+      return;
+    }
+    
+    if (!isMediaReady || !localStream) {
+      console.log("WebRTC: Waiting for local media stream...");
+      return;
+    }
+    
+    // Avoid setting up handlers multiple times
+    if (hasSetupEventHandlersRef.current) {
+      console.log("WebRTC: Event handlers already set up, skipping");
+      return;
+    }
     
     console.log("Setting up socket event handlers for WebRTC signaling");
+    hasSetupEventHandlersRef.current = true;
 
-    // User joined the room
-    on('user-joined', ({ userId, userName }) => {
-      console.log(`User joined: ${userName} (${userId})`);
-      showToast(`${userName} joined the call`);
-      
-      // Create a peer connection for the new user
-      if (localStream) {
-        console.log("Creating peer connection for new user:", userId);
+    // Update handlers in ref
+    handlersRef.current = {
+      // User joined the room
+      userJoined: ({ userId, userName }) => {
+        if (!isMountedRef.current) return;
         
-        const handleIceCandidate = (candidate) => {
-          emit('ice-candidate', { candidate, targetUserId: userId });
-        };
+        console.log(`User joined: ${userName} (${userId})`);
+        showToast(`${userName} joined the call`);
         
-        createPeerConnection(userId, localStream, handleIceCandidate)
-          .then(() => {
-            // Create and send an offer
-            return createOffer(userId);
-          })
-          .then(offer => {
-            if (offer) {
-              console.log("Sending offer to:", userId);
-              emit('offer', { offer, targetUserId: userId });
+        // Create a peer connection for the new user
+        if (localStream) {
+          console.log("Creating peer connection for new user:", userId);
+          
+          const handleIceCandidate = (candidate) => {
+            if (socket && isConnected && isMountedRef.current) {
+              emit('ice-candidate', { candidate, targetUserId: userId });
+            } else {
+              console.warn("Cannot send ICE candidate: socket not connected or component unmounted");
             }
-          })
-          .catch(err => {
-            console.error("Error creating peer connection:", err);
-          });
-      }
-    });
-
-    // Handle WebRTC offer
-    on('offer', async ({ offer, fromUserId, fromUserName }) => {
-      console.log(`Received offer from: ${fromUserName} (${fromUserId})`);
-      
-      try {
-        const handleIceCandidate = (candidate) => {
-          emit('ice-candidate', { candidate, targetUserId: fromUserId });
-        };
-        
-        // Handle the offer and create an answer
-        const answer = await handleOffer(fromUserId, offer, localStream, handleIceCandidate);
-        
-        if (answer) {
-          console.log("Sending answer to:", fromUserId);
-          emit('answer', { answer, targetUserId: fromUserId });
+          };
+          
+          createPeerConnection(userId, localStream, handleIceCandidate)
+            .then(() => {
+              // Create and send an offer
+              return createOffer(userId);
+            })
+            .then(offer => {
+              if (offer && isMountedRef.current) {
+                console.log("Sending offer to:", userId);
+                emit('offer', { offer, targetUserId: userId });
+              }
+            })
+            .catch(err => {
+              console.error("Error creating peer connection:", err);
+            });
         }
-      } catch (error) {
-        console.error("Error handling offer:", error);
+      },
+      
+      // Handle WebRTC offer
+      offer: async ({ offer, fromUserId, fromUserName }) => {
+        if (!isMountedRef.current) return;
+        
+        console.log(`Received offer from: ${fromUserName} (${fromUserId})`);
+        
+        try {
+          const handleIceCandidate = (candidate) => {
+            if (socket && isConnected && isMountedRef.current) {
+              emit('ice-candidate', { candidate, targetUserId: fromUserId });
+            } else {
+              console.warn("Cannot send ICE candidate: socket not connected or component unmounted");
+            }
+          };
+          
+          // Handle the offer and create an answer
+          const answer = await handleOffer(fromUserId, offer, localStream, handleIceCandidate);
+          
+          if (answer && isMountedRef.current) {
+            console.log("Sending answer to:", fromUserId);
+            emit('answer', { answer, targetUserId: fromUserId });
+          }
+        } catch (error) {
+          console.error("Error handling offer:", error);
+        }
+      },
+      
+      // Handle WebRTC answer
+      answer: ({ answer, fromUserId }) => {
+        if (!isMountedRef.current) return;
+        
+        console.log(`Received answer from: ${fromUserId}`);
+        handleAnswer(fromUserId, answer);
+      },
+      
+      // Handle ICE candidates
+      iceCandidate: ({ candidate, fromUserId }) => {
+        if (!isMountedRef.current) return;
+        
+        console.log(`Received ICE candidate from: ${fromUserId}`);
+        addIceCandidate(fromUserId, candidate);
+      },
+      
+      // User left the room
+      userLeft: ({ userId, userName }) => {
+        if (!isMountedRef.current) return;
+        
+        console.log(`User left: ${userName} (${userId})`);
+        showToast(`${userName} left the call`);
+        
+        // Close the peer connection
+        closePeerConnection(userId);
+        
+        // Remove from participants list
+        setParticipants(prev => prev.filter(p => p.id !== userId));
+      },
+      
+      // Joined room successfully
+      joinedRoom: ({ users }) => {
+        if (!isMountedRef.current) return;
+        
+        console.log('Joined room successfully, existing users:', users);
+        setParticipants(users);
+        setIsConnecting(false);
       }
-    });
+    };
 
-    // Handle WebRTC answer
-    on('answer', ({ answer, fromUserId }) => {
-      console.log(`Received answer from: ${fromUserId}`);
-      handleAnswer(fromUserId, answer);
-    });
-
-    // Handle ICE candidates
-    on('ice-candidate', ({ candidate, fromUserId }) => {
-      console.log(`Received ICE candidate from: ${fromUserId}`);
-      addIceCandidate(fromUserId, candidate);
-    });
-
-    // User left the room
-    on('user-left', ({ userId, userName }) => {
-      console.log(`User left: ${userName} (${userId})`);
-      showToast(`${userName} left the call`);
-      
-      // Close the peer connection
-      closePeerConnection(userId);
-      
-      // Remove from participants list
-      setParticipants(prev => prev.filter(p => p.id !== userId));
-    });
-
-    // Joined room successfully
-    on('joined-room', ({ users }) => {
-      console.log('Joined room successfully, existing users:', users);
-      setParticipants(users);
-      setIsConnecting(false);
-    });
+    // Set up event listeners using handlers from ref
+    on('user-joined', handlersRef.current.userJoined);
+    on('offer', handlersRef.current.offer);
+    on('answer', handlersRef.current.answer);
+    on('ice-candidate', handlersRef.current.iceCandidate);
+    on('user-left', handlersRef.current.userLeft);
+    on('joined-room', handlersRef.current.joinedRoom);
 
     return () => {
-      off('user-joined');
-      off('offer');
-      off('answer');
-      off('ice-candidate');
-      off('user-left');
-      off('joined-room');
+      // Only clean up if we set up the handlers and component is unmounting for real
+      if (hasSetupEventHandlersRef.current && !isMountedRef.current) {
+        console.log("Cleaning up WebRTC event handlers");
+        off('user-joined', handlersRef.current.userJoined);
+        off('offer', handlersRef.current.offer);
+        off('answer', handlersRef.current.answer);
+        off('ice-candidate', handlersRef.current.iceCandidate);
+        off('user-left', handlersRef.current.userLeft);
+        off('joined-room', handlersRef.current.joinedRoom);
+        
+        hasSetupEventHandlersRef.current = false;
+      }
     };
-  }, [
-    socket, 
-    isConnected, 
-    localStream, 
-    emit, 
-    on, 
-    off, 
-    createPeerConnection, 
-    createOffer, 
-    handleOffer, 
-    handleAnswer, 
-    addIceCandidate, 
-    closePeerConnection
-  ]);
+  }, [socket, isConnected, localStream, isMediaReady, emit, createPeerConnection, createOffer, handleOffer, handleAnswer, addIceCandidate, closePeerConnection]);
+
+  // Log important state changes
+  useEffect(() => {
+    if (isMediaReady && localStream) {
+      console.log("✅ Media is ready and stream available:", localStream.id);
+    }
+  }, [isMediaReady, localStream]);
+
+  useEffect(() => {
+    if (socket && isConnected) {
+      console.log("✅ Socket connected:", socket.id);
+    }
+  }, [socket, isConnected]);
 
   // Effect to handle errors from hooks
   useEffect(() => {
     if (socketError) {
       setConnectionError(`Server connection error: ${socketError}`);
+      console.error("❌ Socket error:", socketError);
     } else if (mediaError) {
       setConnectionError(`Media error: ${mediaError}`);
+      console.error("❌ Media error:", mediaError);
     } else if (peerError) {
       setConnectionError(`Connection error: ${peerError}`);
+      console.error("❌ Peer connection error:", peerError);
     }
   }, [socketError, mediaError, peerError]);
 
@@ -562,6 +683,26 @@ const VideoCall = () => {
       </VideoCard>
     );
   });
+
+  // Final cleanup when component unmounts for real
+  useEffect(() => {
+    return () => {
+      // This will only run when the component is truly unmounting
+      if (!isMountedRef.current) {
+        console.log("Component unmounting - final cleanup");
+        
+        // Clean up all peer connections
+        closeAllPeerConnections();
+        
+        // Leave the room if needed
+        if (hasJoinedRef.current) {
+          console.log("Leaving room on unmount");
+          emit('leave-room');
+          hasJoinedRef.current = false;
+        }
+      }
+    };
+  }, [emit, closeAllPeerConnections]);
 
   return (
     <VideoContainer>
