@@ -766,7 +766,7 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
   const serverIPs = getServerIPs();
   console.log(`\n🚀 Video Call Server running on port ${PORT}`);

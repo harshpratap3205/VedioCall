@@ -1,190 +1,130 @@
-# AudioVideo App
+# VideoCallApp
 
-A modern, full-featured audio and video communication application built with React.js frontend and Node.js backend. Features include real-time video calls, audio-only calls, room management, and responsive design.
+A real-time video calling application built with React, Node.js, Socket.IO, and WebRTC.
 
-## 🚀 Features
+## Features
 
-- **Video Calls**: High-quality video communication with multiple participants
-- **Audio Calls**: Optimized audio-only conversations with visual indicators
-- **Room Management**: Create and join rooms with unique IDs
-- **Real-time Communication**: Socket.io for instant messaging and signaling
-- **Responsive Design**: Works seamlessly on desktop and mobile devices
-- **Modern UI**: Beautiful glassmorphism design with smooth animations
-- **Screen Sharing**: Share your screen with other participants (planned)
-- **Media Controls**: Mute/unmute audio, enable/disable video
+- Video and audio calling
+- Screen sharing
+- Text chat during calls
+- Meeting room creation and joining
+- Sharable meeting links
+- Responsive UI for desktop and mobile
 
-## 📁 Project Structure
+## Tech Stack
 
-```
-AudioVideoApp/
-├── package.json                 # Root workspace configuration
-├── README.md                   # Project documentation
-├── client/                     # React frontend application
-│   ├── package.json           # Client dependencies
-│   ├── public/
-│   │   └── index.html         # HTML template
-│   └── src/
-│       ├── index.js           # React entry point
-│       ├── App.js             # Main app component with routing
-│       ├── App.css            # Global app styles
-│       ├── index.css          # Base styles and utilities
-│       ├── reportWebVitals.js # Performance monitoring
-│       └── components/        # React components
-│           ├── Navbar.js      # Navigation bar
-│           ├── Home.js        # Landing page
-│           ├── JoinRoom.js    # Join existing room
-│           ├── VideoCall.js   # Video call interface
-│           └── AudioCall.js   # Audio call interface
-└── server/                    # Node.js backend server
-    ├── package.json          # Server dependencies
-    └── index.js              # Express server with Socket.io
-```
+- **Frontend**: React, React Router, Styled Components
+- **Backend**: Node.js, Express
+- **Real-time Communication**: Socket.IO, WebRTC
+- **Media Handling**: WebRTC APIs (getUserMedia, RTCPeerConnection)
 
-## 🛠️ Technology Stack
-
-### Frontend
-- **React 18** - Modern React with hooks
-- **React Router** - Client-side routing
-- **Styled Components** - CSS-in-JS styling
-- **Socket.io Client** - Real-time communication
-
-### Backend
-- **Node.js** - JavaScript runtime
-- **Express** - Web framework
-- **Socket.io** - Real-time bidirectional communication
-- **CORS** - Cross-origin resource sharing
-- **UUID** - Unique identifier generation
-
-## 🚀 Getting Started
+## Local Development
 
 ### Prerequisites
-- Node.js (v18 or higher)
-- npm (v9 or higher)
 
-### Installation
+- Node.js (version 18 or higher)
+- npm or yarn
 
-1. **Clone or navigate to the project directory**
-   ```bash
-   cd AudioVideoApp
+### Setup
+
+1. Clone the repository:
+   ```
+   git clone <repository-url>
+   cd VideoCallApp
    ```
 
-2. **Install all dependencies**
-   ```bash
-   npm run install:all
+2. Install dependencies for both client and server:
+   ```
+   # Install server dependencies
+   cd server
+   npm install
+   
+   # Install client dependencies
+   cd ../client
+   npm install
    ```
 
-3. **Start the development servers**
-   ```bash
+3. Start the development server:
+   ```
+   # Run the server
+   cd ../server
    npm run dev
+   
+   # In another terminal, run the client
+   cd ../client
+   npm start
    ```
 
-   This will start both the frontend (http://localhost:3000) and backend (http://localhost:5000) simultaneously.
+4. For Windows users, you can use the restart.bat script:
+   ```
+   .\restart.bat
+   ```
 
-### Alternative: Start servers individually
+5. Access the application at http://localhost:3000
 
-**Terminal 1 - Start the backend server:**
-```bash
-npm run server:dev
-```
+## Deployment to Render
 
-**Terminal 2 - Start the frontend:**
-```bash
-npm run client:dev
-```
+This application is configured for easy deployment to [Render](https://render.com/).
 
-## 🎮 Usage
+### Using the Render Blueprint
 
-1. **Access the app** at http://localhost:3000
-2. **Start a new call**:
-   - Click "Start Video Call" or "Start Audio Call"
-   - Share the generated Room ID with others
-3. **Join an existing room**:
-   - Click "Join Room"
-   - Enter your name and the Room ID
-   - Choose call type (Video/Audio)
+1. Fork or clone this repository to your GitHub account
 
-## 🔧 Available Scripts
+2. Sign up for a Render account at https://render.com/
 
-### Root Level
-- `npm run dev` - Start both client and server in development mode
-- `npm run client:dev` - Start only the React frontend
-- `npm run server:dev` - Start only the Node.js backend
-- `npm run install:all` - Install dependencies for all workspaces
+3. From the Render dashboard, click "New" and select "Blueprint"
 
-### Client Scripts
-- `npm start` - Start React development server
-- `npm run build` - Build for production
-- `npm test` - Run tests
+4. Connect your GitHub account and select your fork of this repository
 
-### Server Scripts
-- `npm start` - Start production server
-- `npm run dev` - Start with nodemon for development
+5. Click "Apply Blueprint"
 
-## 🏗️ Architecture
+Render will automatically deploy both the server and client components based on the configuration in `render.yaml`.
 
-### Frontend Components
+### Manual Deployment
 
-1. **App.js** - Main application with routing
-2. **Navbar.js** - Navigation with modern glassmorphism design
-3. **Home.js** - Landing page with call options
-4. **JoinRoom.js** - Enhanced room joining with recent rooms
-5. **VideoCall.js** - Video call interface with controls
-6. **AudioCall.js** - Audio-optimized interface with speaking indicators
+#### Backend Server
 
-### Backend Server
+1. From the Render dashboard, click "New" and select "Web Service"
 
-The server handles:
-- **Room Management** - Create, join, and manage rooms
-- **WebRTC Signaling** - Facilitate peer-to-peer connections
-- **Real-time Events** - User join/leave, media controls
-- **API Endpoints** - Room information and health checks
+2. Connect your GitHub repository
 
-## 🔮 Next Steps (TODO)
+3. Use the following settings:
+   - **Name**: videocallapp-server
+   - **Environment**: Node
+   - **Build Command**: `cd server && npm install`
+   - **Start Command**: `cd server && npm start`
+   - **Plan**: Free (or select as needed)
 
-- [ ] **WebRTC Implementation** - Add actual video/audio streaming
-- [ ] **Signaling Server** - Complete WebRTC peer connection setup
-- [ ] **UI Components** - Enhance with additional features
-- [ ] **Room Management** - Advanced room features
-- [ ] **Screen Sharing** - Implement screen sharing capability
-- [ ] **Chat System** - Add text messaging
-- [ ] **User Authentication** - Add user accounts and profiles
+4. Add the following environment variable:
+   - `NODE_ENV`: `production`
 
-## 🌐 Environment Configuration
+5. Click "Create Web Service"
 
-Create a `.env` file in the server directory (optional):
-```env
-PORT=5000
-CLIENT_URL=http://localhost:3000
-NODE_ENV=development
-```
+#### Frontend Client
 
-## 📱 Mobile Support
+1. From the Render dashboard, click "New" and select "Static Site"
 
-The app is fully responsive and supports:
-- **Touch Controls** - Optimized for mobile devices
-- **Responsive Layout** - Adapts to different screen sizes
-- **Progressive Web App** - Can be installed on mobile devices
+2. Connect your GitHub repository
 
-## 🤝 Contributing
+3. Use the following settings:
+   - **Name**: videocallapp-client
+   - **Build Command**: `cd client && npm install && npm run build`
+   - **Publish Directory**: `client/build`
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+4. Add the following environment variables:
+   - `REACT_APP_SERVER_URL`: (URL of your server from the previous step)
+   - `REACT_APP_STUN_SERVERS`: `stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302`
 
-## 📄 License
+5. Click "Create Static Site"
 
-This project is open source and available under the [MIT License](LICENSE).
+### Post-Deployment
 
-## 🆘 Support
+After deployment, your application will be available at the URLs provided by Render.
 
-If you encounter any issues:
-1. Check the console for error messages
-2. Ensure both frontend and backend are running
-3. Verify your Node.js version is 18 or higher
-4. Check that ports 3000 and 5000 are available
+Note that on the free tier of Render:
+- The backend service will spin down after periods of inactivity
+- The first request after inactivity may take a moment as the service spins up
 
----
+## License
 
-**Happy Coding! 🎉** 
+MIT 

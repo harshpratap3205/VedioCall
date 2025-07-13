@@ -1,0 +1,28 @@
+services:
+  # Backend Server
+  - type: web
+    name: videocallapp-server
+    env: node
+    region: ohio # Choose the region closest to your users
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    plan: free # Upgrade as needed
+    envVars:
+      - key: NODE_ENV
+        value: production
+    
+  # Frontend Client
+  - type: web
+    name: videocallapp-client
+    env: static
+    region: ohio # Choose the region closest to your users
+    buildCommand: cd client && npm install && npm run build
+    staticPublishPath: ./client/build
+    envVars:
+      - key: REACT_APP_SERVER_URL
+        fromService:
+          name: videocallapp-server
+          type: web
+          property: url
+      - key: REACT_APP_STUN_SERVERS
+        value: stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302 

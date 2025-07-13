@@ -12,15 +12,19 @@ export const useSocket = (serverUrl = null) => {
 
   // Determine server URL
   const getServerUrl = useCallback(() => {
+    // If server URL is provided directly, use it
     if (serverUrl) return serverUrl;
     
-    // Use environment variable or default to port 3001
-    const serverPort = '3001';
+    // Check for environment variable (set by Render or other hosting)
+    if (process.env.REACT_APP_SERVER_URL) {
+      return process.env.REACT_APP_SERVER_URL;
+    }
     
     // Check if we're in development or production
     if (process.env.NODE_ENV === 'development') {
       // For development, try to detect the server IP
       const hostname = window.location.hostname;
+      const serverPort = '3001';
       
       // If accessing via IP, use the same IP for socket
       if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
@@ -31,7 +35,8 @@ export const useSocket = (serverUrl = null) => {
       return `http://localhost:${serverPort}`;
     }
     
-    // For production, use the same origin
+    // For production with no explicit URL, use the same origin
+    // This works for Render and similar hosting where frontend/backend are on same domain
     return window.location.origin;
   }, [serverUrl]);
 
