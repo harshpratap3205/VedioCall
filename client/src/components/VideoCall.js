@@ -189,10 +189,74 @@ const Toast = styled.div`
   }
 `;
 
+const UsernameModal = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+`;
+
+const UsernameForm = styled.div`
+  background: #2a2a2a;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 90%;
+  max-width: 500px;
+  text-align: center;
+`;
+
+const UsernameInput = styled.input`
+  width: 100%;
+  padding: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 1rem;
+  margin: 1rem 0;
+  backdrop-filter: blur(10px);
+  
+  &::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+  }
+  
+  &:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+`;
+
+const UsernameButton = styled.button`
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    transform: scale(1.05);
+  }
+`;
+
 const VideoCall = () => {
   const { roomId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  
+  // Get username from location state or use 'Anonymous'
+  const [userName, setUserName] = useState('');
+  const [showUsernamePrompt, setShowUsernamePrompt] = useState(false);
+  const [isUserNameSet, setIsUserNameSet] = useState(false);
   
   // Component lifecycle tracking
   const isMountedRef = useRef(true);
@@ -201,7 +265,6 @@ const VideoCall = () => {
   const cleanupInProgressRef = useRef(false);
   
   const [participants, setParticipants] = useState([]);
-  const [userName] = useState(location.state?.userName || 'Anonymous');
   const [isConnecting, setIsConnecting] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -273,11 +336,65 @@ const VideoCall = () => {
     };
   }, []);
 
-  // Initialize room and media
+  // Check if we need to prompt for username
   useEffect(() => {
-    // Don't do anything if the socket isn't connected
-    if (!socket || !isConnected) {
-      console.log("Waiting for socket connection...");
+    // First check if we already have a username in location state
+    if (location.state?.userName) {
+      setUserName(location.state.userName);
+      setIsUserNameSet(true);
+      return;
+    }
+    
+    // Try to get username from localStorage (recent rooms)
+    try {
+      const recentRooms = JSON.parse(localStorage.getItem('recentRooms') || '[]');
+      const matchingRoom = recentRooms.find(room => room.id === roomId);
+      
+      if (matchingRoom && matchingRoom.userName) {
+        setUserName(matchingRoom.userName);
+        setIsUserNameSet(true);
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking recent rooms:', error);
+    }
+    
+    // If we still don't have a username, show the prompt
+    setShowUsernamePrompt(true);
+  }, [location.state, roomId]);
+
+  // Handle username submission
+  const handleUsernameSubmit = () => {
+    if (userName.trim()) {
+      setIsUserNameSet(true);
+      setShowUsernamePrompt(false);
+      
+      // Save to recent rooms
+      try {
+        const recentRooms = JSON.parse(localStorage.getItem('recentRooms') || '[]');
+        const roomExists = recentRooms.some(room => room.id === roomId);
+        
+        if (!roomExists) {
+          const newRoom = {
+            id: roomId,
+            userName: userName.trim(),
+            timestamp: Date.now()
+          };
+          
+          recentRooms.unshift(newRoom);
+          localStorage.setItem('recentRooms', JSON.stringify(recentRooms.slice(0, 5)));
+        }
+      } catch (error) {
+        console.error('Error saving to recent rooms:', error);
+      }
+    }
+  };
+
+  // Initialize room and media - only after username is set
+  useEffect(() => {
+    // Don't do anything if the socket isn't connected or username isn't set
+    if (!socket || !isConnected || !isUserNameSet) {
+      console.log("Waiting for socket connection or username...");
       return;
     }
     
@@ -329,7 +446,7 @@ const VideoCall = () => {
         }, 500);
       }
     };
-  }, [socket, isConnected, roomId, userName, emit]);
+  }, [socket, isConnected, roomId, userName, emit, isUserNameSet]);
 
   // Initialize media
   useEffect(() => {
@@ -606,6 +723,19 @@ const VideoCall = () => {
     showToast('Room ID copied to clipboard', 'success');
   };
 
+  // Handle copy meeting link
+  const copyMeetingLink = () => {
+    const url = `${window.location.origin}/video/${roomId}`;
+    navigator.clipboard.writeText(url)
+      .then(() => {
+        showToast('Meeting link copied to clipboard!', 'success');
+      })
+      .catch(err => {
+        console.error('Failed to copy:', err);
+        showToast('Failed to copy link', 'error');
+      });
+  };
+
   // Video component to handle rendering and stability
   const VideoComponent = React.memo(({ userId, stream, name }) => {
     const videoRef = useRef(null);
@@ -704,6 +834,34 @@ const VideoCall = () => {
     };
   }, [emit, closeAllPeerConnections]);
 
+  // Render username prompt
+  if (showUsernamePrompt) {
+    return (
+      <UsernameModal>
+        <UsernameForm>
+          <h2 style={{ color: 'white', marginBottom: '1rem' }}>Enter Your Name</h2>
+          <p style={{ color: '#ccc', marginBottom: '1.5rem' }}>
+            Please enter your name to join the video call
+          </p>
+          <UsernameInput
+            type="text"
+            placeholder="Your Name"
+            value={userName}
+            onChange={(e) => setUserName(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleUsernameSubmit()}
+            autoFocus
+          />
+          <UsernameButton 
+            onClick={handleUsernameSubmit}
+            disabled={!userName.trim()}
+          >
+            Join Call
+          </UsernameButton>
+        </UsernameForm>
+      </UsernameModal>
+    );
+  }
+
   return (
     <VideoContainer>
       {/* Room info */}
@@ -767,6 +925,13 @@ const VideoCall = () => {
           onClick={handleToggleScreenShare}
         >
           {isScreenSharing ? '💻' : '🖥️'}
+        </ControlButton>
+        <ControlButton
+          onClick={copyMeetingLink}
+          style={{ background: '#17a2b8' }}
+          title="Copy Meeting Link"
+        >
+          🔗
         </ControlButton>
       </Controls>
       

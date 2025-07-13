@@ -1,10 +1,23 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-// STUN servers for NAT traversal
+// STUN/TURN servers for NAT traversal
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  // Public TURN servers - replace with your own in production
+  {
+    urls: 'turn:numb.viagenie.ca',
+    credential: 'muazkh',
+    username: 'webrtc@live.com'
+  },
+  {
+    urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+    credential: 'webrtc',
+    username: 'webrtc'
+  }
 ];
 
 export const usePeerConnection = () => {
@@ -42,18 +55,7 @@ export const usePeerConnection = () => {
       
       // ICE servers configuration (STUN/TURN)
       const configuration = {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' }
-          // Add TURN servers for production environment
-          // {
-          //   urls: 'turn:turn.example.com:3478',
-          //   username: 'username',
-          //   credential: 'password'
-          // }
-        ],
+        iceServers: ICE_SERVERS,
         iceCandidatePoolSize: 10,
         // Improve connection stability
         iceTransportPolicy: 'all',
@@ -87,219 +89,199 @@ export const usePeerConnection = () => {
         console.warn(`No local stream available for peer: ${peerId}`);
       }
       
-      // Handle remote stream
-      pc.ontrack = event => {
-        console.log(`Received remote track from peer: ${peerId}`, event.streams[0]);
-        
-        // Store remote stream
-        setRemoteStreams(prev => ({
-          ...prev,
-          [peerId]: event.streams[0]
-        }));
-        
-        // Apply bandwidth optimizations to incoming video
-        if (event.track.kind === 'video') {
-          try {
-            // Set content hint for better processing
-            event.track.contentHint = "motion";
-            
-            // Set up periodic connection quality monitoring
-            const statsInterval = setInterval(async () => {
-              try {
-                if (pc.connectionState === 'connected') {
-                  const stats = await pc.getStats(event.track);
-                  let hasIssues = false;
-                  
-                  stats.forEach(stat => {
-                    // Look for video issues in stats
-                    if (stat.type === 'inbound-rtp' && stat.kind === 'video') {
-                      const packetsLost = stat.packetsLost || 0;
-                      const packetsReceived = stat.packetsReceived || 1;
-                      const lossRate = packetsLost / (packetsLost + packetsReceived);
-                      
-                      // If loss rate is high, we have connection issues
-                      if (lossRate > 0.05) { // 5% packet loss
-                        hasIssues = true;
-                        console.warn(`High packet loss (${(lossRate*100).toFixed(1)}%) detected for peer ${peerId}`);
-                      }
-                    }
-                  });
-                  
-                  if (hasIssues && pc.connectionState === 'connected') {
-                    console.log(`Connection quality issues detected for peer ${peerId}, attempting to optimize...`);
-                    // Could trigger bandwidth adaptation here
-                  }
-                }
-              } catch (e) {
-                console.warn('Error monitoring connection stats:', e);
-              }
-            }, 5000); // Check every 5 seconds
-            
-            // Clean up interval when track ends
-            event.track.onended = () => {
-              clearInterval(statsInterval);
-            };
-          } catch (e) {
-            console.warn('Could not optimize incoming video track:', e);
-          }
-        }
-      };
-      
-      // ICE candidate event
-      pc.onicecandidate = event => {
+      // Handle ICE candidate events
+      pc.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log(`Generated ICE candidate for peer: ${peerId}`);
-          if (onIceCandidate) {
+          console.log(`New ICE candidate for peer ${peerId}:`, event.candidate);
+          
+          if (onIceCandidate && typeof onIceCandidate === 'function') {
             onIceCandidate(event.candidate);
-          }
-        } else {
-          console.log(`All ICE candidates generated for peer: ${peerId}`);
-        }
-      };
-      
-      // Connection state changes
-      pc.onconnectionstatechange = () => {
-        const state = pc.connectionState;
-        console.log(`Peer connection state changed for ${peerId}: ${state}`);
-        
-        setConnectionStatus(prev => ({
-          ...prev,
-          [peerId]: state
-        }));
-        
-        if (state === 'connected') {
-          console.log(`Successfully connected to peer: ${peerId}`);
-          setConnectionError(null);
-          
-          // Apply bandwidth restrictions for more stable video
-          try {
-            const senders = pc.getSenders();
-            senders.forEach(sender => {
-              if (sender.track && sender.track.kind === 'video') {
-                const params = sender.getParameters();
-                
-                // Only modify if encodings exist and browser supports it
-                if (params.encodings && params.encodings.length > 0) {
-                  console.log('Applying bandwidth restrictions to video');
-                  
-                  // Set reasonable bandwidth limits (1.5 Mbps)
-                  params.encodings[0].maxBitrate = 1500000;
-                  
-                  // Apply the parameters
-                  sender.setParameters(params).catch(e => {
-                    console.warn('Failed to set encoding parameters:', e);
-                  });
-                }
-              }
-            });
-          } catch (e) {
-            console.warn('Could not apply bandwidth restrictions:', e);
-          }
-        } else if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-          console.error(`Peer connection ${state} for peer: ${peerId}`);
-          
-          if (state === 'failed') {
-            setConnectionError(`Connection to peer ${peerId} failed. Try refreshing the page or check your network.`);
-            
-            // Attempt recovery by restarting ICE
-            if (pc.restartIce) {
-              console.log(`Attempting ICE restart for peer: ${peerId}`);
-              pc.restartIce();
-            }
-          }
-          
-          // Update the remote peers list
-          if (state === 'closed') {
-            setRemotePeers(prev => {
-              const updated = { ...prev };
-              delete updated[peerId];
-              return updated;
-            });
-            
-            setRemoteStreams(prev => {
-              const updated = { ...prev };
-              delete updated[peerId];
-              return updated;
-            });
+          } else {
+            console.warn(`No ICE candidate handler for peer: ${peerId}`);
           }
         }
       };
       
-      // ICE connection state changes
+      // Handle ICE connection state changes
       pc.oniceconnectionstatechange = () => {
-        const state = pc.iceConnectionState;
-        console.log(`ICE connection state changed for ${peerId}: ${state}`);
+        console.log(`ICE connection state for ${peerId}:`, pc.iceConnectionState);
         
-        if (state === 'failed') {
-          console.error(`ICE connection failed for peer: ${peerId}`);
-          setConnectionError(`ICE connection failed with peer ${peerId}. This may be due to firewall or network issues.`);
-          
-          // Try ICE restart if possible
-          if (pc.restartIce) {
-            console.log(`Attempting ICE restart for peer: ${peerId}`);
-            pc.restartIce();
-          }
-        } else if (state === 'disconnected') {
-          console.warn(`ICE connection disconnected for peer: ${peerId}, waiting for reconnection...`);
-          
-          // Set a timeout to check if we recover
-          setTimeout(() => {
-            if (pc.iceConnectionState === 'disconnected') {
-              console.log(`ICE connection still disconnected for peer: ${peerId}, attempting restart`);
-              if (pc.restartIce) {
-                pc.restartIce();
+        // Update connection status based on ICE state
+        switch (pc.iceConnectionState) {
+          case 'connected':
+          case 'completed':
+            setConnectionStatus(prev => ({
+              ...prev,
+              [peerId]: 'connected'
+            }));
+            break;
+            
+          case 'failed':
+            console.error(`ICE connection failed for peer: ${peerId}`);
+            setConnectionStatus(prev => ({
+              ...prev,
+              [peerId]: 'failed'
+            }));
+            
+            // Try to restart ICE connection
+            console.log(`Attempting to restart ICE connection for peer: ${peerId}`);
+            restartIce(peerId);
+            break;
+            
+          case 'disconnected':
+            console.warn(`ICE connection disconnected for peer: ${peerId}`);
+            setConnectionStatus(prev => ({
+              ...prev,
+              [peerId]: 'disconnected'
+            }));
+            
+            // Wait briefly and check again (sometimes it auto-recovers)
+            setTimeout(() => {
+              const currentPC = peerConnectionsRef.current[peerId];
+              if (currentPC && currentPC.iceConnectionState === 'disconnected') {
+                console.log(`ICE still disconnected for peer: ${peerId}, attempting to restart`);
+                restartIce(peerId);
               }
-            }
-          }, 5000); // Wait 5 seconds before trying to recover
+            }, 5000);
+            break;
+            
+          case 'closed':
+            setConnectionStatus(prev => ({
+              ...prev,
+              [peerId]: 'closed'
+            }));
+            break;
+            
+          default:
+            break;
+        }
+      };
+      
+      // Handle ICE gathering state changes
+      pc.onicegatheringstatechange = () => {
+        console.log(`ICE gathering state for ${peerId}:`, pc.iceGatheringState);
+      };
+      
+      // Handle signaling state changes
+      pc.onsignalingstatechange = () => {
+        console.log(`Signaling state for ${peerId}:`, pc.signalingState);
+      };
+      
+      // Handle connection state changes
+      pc.onconnectionstatechange = () => {
+        console.log(`Connection state for ${peerId}:`, pc.connectionState);
+        
+        if (pc.connectionState === 'failed') {
+          console.error(`Connection failed for peer: ${peerId}`);
+          
+          // Attempt to reconnect
+          restartIce(peerId);
+        }
+      };
+      
+      // Handle remote track events
+      pc.ontrack = (event) => {
+        console.log(`Received remote track from ${peerId}:`, event.streams);
+        
+        if (event.streams && event.streams[0]) {
+          // Save remote stream
+          setRemoteStreams(prev => ({
+            ...prev,
+            [peerId]: event.streams[0]
+          }));
+          
+          // Update connection status
+          setConnectionStatus(prev => ({
+            ...prev,
+            [peerId]: 'connected'
+          }));
         }
       };
       
       // Process any queued ICE candidates
-      if (iceCandidatesQueueRef.current[peerId].length > 0) {
-        console.log(`Processing ${iceCandidatesQueueRef.current[peerId].length} queued ICE candidates for ${peerId}`);
+      if (iceCandidatesQueueRef.current[peerId] && iceCandidatesQueueRef.current[peerId].length > 0) {
+        console.log(`Processing ${iceCandidatesQueueRef.current[peerId].length} queued ICE candidates for peer: ${peerId}`);
         
-        iceCandidatesQueueRef.current[peerId].forEach(candidate => {
-          pc.addIceCandidate(new RTCIceCandidate(candidate))
+        const candidates = [...iceCandidatesQueueRef.current[peerId]];
+        iceCandidatesQueueRef.current[peerId] = [];
+        
+        candidates.forEach(candidate => {
+          pc.addIceCandidate(candidate)
             .catch(err => console.error(`Error adding queued ICE candidate for ${peerId}:`, err));
         });
-        
-        iceCandidatesQueueRef.current[peerId] = [];
       }
       
       return pc;
     } catch (error) {
       console.error(`Error creating peer connection for ${peerId}:`, error);
-      setConnectionError(`Failed to create peer connection: ${error.message}`);
+      setConnectionError(`Failed to create connection: ${error.message}`);
       return null;
     }
   }, [checkWebRTCSupport]);
 
-  // Create and send offer to remote peer
+  // Create offer
   const createOffer = useCallback(async (peerId) => {
     const pc = peerConnectionsRef.current[peerId];
     
     if (!pc) {
-      const error = `Cannot create offer: No peer connection for ${peerId}`;
-      console.error(error);
-      setConnectionError(error);
+      console.error(`Cannot create offer: No peer connection for ${peerId}`);
       return null;
     }
     
     try {
       console.log(`Creating offer for peer: ${peerId}`);
-      const offer = await pc.createOffer({
+      
+      // Create offer with options for better compatibility
+      const offerOptions = {
         offerToReceiveAudio: true,
-        offerToReceiveVideo: true
-      });
+        offerToReceiveVideo: true,
+        voiceActivityDetection: true,
+        iceRestart: true
+      };
+      
+      const offer = await pc.createOffer(offerOptions);
       
       console.log(`Setting local description (offer) for peer: ${peerId}`);
       await pc.setLocalDescription(offer);
       
+      // Update remote peers state
+      setRemotePeers(prev => ({
+        ...prev,
+        [peerId]: { type: 'offer', connected: false }
+      }));
+      
       return offer;
     } catch (error) {
       console.error(`Error creating offer for ${peerId}:`, error);
-      setConnectionError(`Failed to create offer: ${error.message}`);
+      setConnectionError(`Failed to create call offer: ${error.message}`);
       return null;
+    }
+  }, []);
+
+  // Handle received answer from remote peer
+  const handleAnswer = useCallback(async (peerId, answer) => {
+    const pc = peerConnectionsRef.current[peerId];
+    
+    if (!pc) {
+      console.error(`Cannot handle answer: No peer connection for ${peerId}`);
+      return false;
+    }
+    
+    try {
+      console.log(`Setting remote description (answer) for peer: ${peerId}`);
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      
+      // Update remote peers
+      setRemotePeers(prev => ({
+        ...prev,
+        [peerId]: { ...prev[peerId], connected: true }
+      }));
+      
+      return true;
+    } catch (error) {
+      console.error(`Error handling answer from ${peerId}:`, error);
+      setConnectionError(`Failed to process call response: ${error.message}`);
+      return false;
     }
   }, []);
 
@@ -321,7 +303,10 @@ export const usePeerConnection = () => {
       
       // Create answer
       console.log(`Creating answer for peer: ${peerId}`);
-      const answer = await pc.createAnswer();
+      const answer = await pc.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
       
       // Set local description from answer
       console.log(`Setting local description (answer) for peer: ${peerId}`);
@@ -341,79 +326,73 @@ export const usePeerConnection = () => {
     }
   }, [createPeerConnection]);
 
-  // Handle received answer from remote peer
-  const handleAnswer = useCallback(async (peerId, answer) => {
+  // Add ICE candidate
+  const addIceCandidate = useCallback(async (peerId, candidate) => {
     const pc = peerConnectionsRef.current[peerId];
     
     if (!pc) {
-      const error = `Cannot handle answer: No peer connection for ${peerId}`;
-      console.error(error);
-      setConnectionError(error);
-      return false;
-    }
-    
-    try {
-      console.log(`Handling answer from peer: ${peerId}`);
+      console.warn(`Cannot add ICE candidate: No peer connection for ${peerId}, queuing...`);
       
-      if (pc.signalingState === 'have-local-offer') {
-        // Set remote description from answer
-        console.log(`Setting remote description (answer) for peer: ${peerId}`);
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        
-        // Update remote peers
-        setRemotePeers(prev => ({
-          ...prev,
-          [peerId]: { type: 'offer', connected: true }
-        }));
-        
-        return true;
-      } else {
-        console.warn(`Invalid signaling state for handling answer: ${pc.signalingState}`);
-        return false;
-      }
-    } catch (error) {
-      console.error(`Error handling answer from ${peerId}:`, error);
-      setConnectionError(`Failed to establish connection: ${error.message}`);
-      return false;
-    }
-  }, []);
-
-  // Add ICE candidate from remote peer
-  const addIceCandidate = useCallback((peerId, candidate) => {
-    const pc = peerConnectionsRef.current[peerId];
-    
-    if (!pc) {
-      // Queue ICE candidate if peer connection not ready
-      console.log(`Queueing ICE candidate for peer: ${peerId}`);
+      // Queue the ICE candidate for later
       if (!iceCandidatesQueueRef.current[peerId]) {
         iceCandidatesQueueRef.current[peerId] = [];
       }
+      
       iceCandidatesQueueRef.current[peerId].push(candidate);
       return false;
     }
     
     try {
-      // Check if remote description is set
       if (pc.remoteDescription && pc.remoteDescription.type) {
         console.log(`Adding ICE candidate for peer: ${peerId}`);
-        pc.addIceCandidate(new RTCIceCandidate(candidate))
-          .catch(err => {
-            console.error(`Error adding ICE candidate for ${peerId}:`, err);
-            setConnectionError(`Failed to process network information: ${err.message}`);
-          });
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
         return true;
       } else {
-        // Queue ICE candidate if remote description not set
-        console.log(`Queueing ICE candidate (no remote description) for peer: ${peerId}`);
+        // Queue ICE candidate if remote description is not set yet
+        console.log(`Remote description not set for ${peerId}, queuing ICE candidate`);
         if (!iceCandidatesQueueRef.current[peerId]) {
           iceCandidatesQueueRef.current[peerId] = [];
         }
+        
         iceCandidatesQueueRef.current[peerId].push(candidate);
-        return false;
+        return true;
       }
     } catch (error) {
-      console.error(`Error handling ICE candidate for ${peerId}:`, error);
-      setConnectionError(`Failed to process network information: ${error.message}`);
+      console.error(`Error adding ICE candidate for ${peerId}:`, error);
+      return false;
+    }
+  }, []);
+
+  // Update stream for an existing peer connection
+  const updateStream = useCallback(async (peerId, newStream) => {
+    const pc = peerConnectionsRef.current[peerId];
+    
+    if (!pc) {
+      console.error(`Cannot update stream: No peer connection for ${peerId}`);
+      return false;
+    }
+    
+    try {
+      console.log(`Updating stream for peer: ${peerId}`);
+      
+      // Get all current senders (tracks)
+      const senders = pc.getSenders();
+      
+      // For each track in the new stream, find the corresponding sender and replace it
+      const promises = newStream.getTracks().map(track => {
+        const sender = senders.find(s => s.track && s.track.kind === track.kind);
+        
+        if (sender) {
+          return sender.replaceTrack(track);
+        } else {
+          return pc.addTrack(track, newStream);
+        }
+      });
+      
+      await Promise.all(promises);
+      return true;
+    } catch (error) {
+      console.error(`Error updating stream for ${peerId}:`, error);
       return false;
     }
   }, []);
@@ -474,51 +453,12 @@ export const usePeerConnection = () => {
     return !!peerConnectionsRef.current[peerId];
   }, []);
 
-  // Update stream for existing peer connection
-  const updateStream = useCallback((peerId, newStream) => {
-    const pc = peerConnectionsRef.current[peerId];
-    
-    if (!pc) {
-      console.warn(`Cannot update stream: No peer connection for ${peerId}`);
-      return false;
-    }
-    
-    try {
-      console.log(`Updating stream for peer: ${peerId}`);
-      
-      // Get all senders
-      const senders = pc.getSenders();
-      
-      // Replace all tracks with new ones
-      newStream.getTracks().forEach(track => {
-        const sender = senders.find(s => {
-          return s.track && s.track.kind === track.kind;
-        });
-        
-        if (sender) {
-          console.log(`Replacing ${track.kind} track for peer: ${peerId}`);
-          sender.replaceTrack(track)
-            .catch(err => console.error(`Error replacing track for ${peerId}:`, err));
-        } else {
-          console.log(`Adding new ${track.kind} track for peer: ${peerId}`);
-          pc.addTrack(track, newStream);
-        }
-      });
-      
-      return true;
-    } catch (error) {
-      console.error(`Error updating stream for ${peerId}:`, error);
-      setConnectionError(`Failed to update media stream: ${error.message}`);
-      return false;
-    }
-  }, []);
-
-  // Get connection statistics
+  // Get connection statistics (useful for debugging)
   const getStats = useCallback(async (peerId) => {
     const pc = peerConnectionsRef.current[peerId];
     
     if (!pc) {
-      console.warn(`Cannot get stats: No peer connection for ${peerId}`);
+      console.error(`Cannot get stats: No peer connection for ${peerId}`);
       return null;
     }
     
