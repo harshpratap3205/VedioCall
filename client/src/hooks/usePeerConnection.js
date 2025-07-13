@@ -118,8 +118,8 @@ export const usePeerConnection = () => {
             
           case 'failed':
             console.error(`ICE connection failed for peer: ${peerId}`);
-            setConnectionStatus(prev => ({
-              ...prev,
+        setConnectionStatus(prev => ({
+          ...prev,
               [peerId]: 'failed'
             }));
             

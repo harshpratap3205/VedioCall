@@ -496,20 +496,59 @@ const os = require('os');
 const app = express();
 const server = http.createServer(app);
 
-// Configure CORS for cross-origin requests
+// Update CORS configuration to allow Vercel domain
 app.use(cors({
-  origin: "*", // Allow all origins for development
-  credentials: true
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl requests)
+    if (!origin) return callback(null, true);
+    
+    // List of allowed origins
+    const allowedOrigins = [
+      'http://localhost:3000',                      // Local development
+      'https://videocallapp-client.vercel.app',     // Default Vercel domain
+      'https://videocallapp.vercel.app',            // Custom Vercel domain if you set one up
+      process.env.FRONTEND_URL                      // From environment variable if set
+    ].filter(Boolean); // Remove any undefined/null values
+    
+    // Check if origin is allowed
+    if (allowedOrigins.indexOf(origin) === -1) {
+      console.log(`Origin ${origin} not allowed by CORS`);
+      return callback(null, false);
+    }
+    
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Socket.io configuration for cross-network communication
+// Socket.io CORS configuration
 const io = socketIo(server, {
   cors: {
-    origin: "*", // Allow all origins
-    methods: ["GET", "POST"],
+    origin: function(origin, callback) {
+      // Allow requests with no origin (like mobile apps, curl requests)
+      if (!origin) return callback(null, true);
+      
+      // List of allowed origins (same as for Express)
+      const allowedOrigins = [
+        'http://localhost:3000',                    // Local development
+        'https://videocallapp-client.vercel.app',   // Default Vercel domain
+        'https://videocallapp.vercel.app',          // Custom Vercel domain
+        process.env.FRONTEND_URL                    // From environment variable if set
+      ].filter(Boolean);
+      
+      // Check if origin is allowed
+      if (allowedOrigins.indexOf(origin) === -1) {
+        console.log(`Origin ${origin} not allowed by Socket.io CORS`);
+        return callback(null, false);
+      }
+      
+      return callback(null, true);
+    },
+    methods: ['GET', 'POST'],
     credentials: true
   },
-  transports: ['websocket', 'polling'], // Enable both transport methods
   allowEIO3: true
 });
 
