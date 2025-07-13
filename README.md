@@ -64,9 +64,9 @@ A real-time video calling application built with React, Node.js, Socket.IO, and 
 
 ## Deployment to Render
 
-This application is configured for easy deployment to [Render](https://render.com/).
+This application is configured for easy deployment to [Render](https://render.com/). We're using a combined deployment approach where the server serves both the backend API and the frontend static files.
 
-### Using the Render Blueprint
+### Using the Render Blueprint (Recommended)
 
 1. Fork or clone this repository to your GitHub account
 
@@ -78,51 +78,50 @@ This application is configured for easy deployment to [Render](https://render.co
 
 5. Click "Apply Blueprint"
 
-Render will automatically deploy both the server and client components based on the configuration in `render.yaml`.
+Render will automatically deploy the combined application based on the configuration in `render.yaml`.
 
-### Manual Deployment
+### Manual Deployment (Combined Approach)
 
-#### Backend Server
-
-1. From the Render dashboard, click "New" and select "Web Service"
+1. From the Render dashboard, click "New" → "Web Service"
 
 2. Connect your GitHub repository
 
 3. Use the following settings:
-   - **Name**: videocallapp-server
+   - **Name**: videocallapp
    - **Environment**: Node
-   - **Build Command**: `cd server && npm install`
+   - **Build Command**: 
+     ```
+     cd server && npm install && cd ../client && npm install && npm run build && mkdir -p ../server/client && cp -r build/* ../server/client/
+     ```
    - **Start Command**: `cd server && npm start`
    - **Plan**: Free (or select as needed)
 
-4. Add the following environment variable:
+4. Add the following environment variables:
    - `NODE_ENV`: `production`
+   - `REACT_APP_STUN_SERVERS`: `stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302`
 
 5. Click "Create Web Service"
 
-#### Frontend Client
+### Troubleshooting Deployment
 
-1. From the Render dashboard, click "New" and select "Static Site"
+If you encounter issues with your deployment:
 
-2. Connect your GitHub repository
+1. Check the `/debug` endpoint on your deployed server (e.g., https://your-app-name.onrender.com/debug) to see:
+   - Environment information
+   - File path availability 
+   - Server status
 
-3. Use the following settings:
-   - **Name**: videocallapp-client
-   - **Build Command**: `cd client && npm install && npm run build`
-   - **Publish Directory**: `client/build`
-
-4. Add the following environment variables:
-   - `REACT_APP_SERVER_URL`: (URL of your server from the previous step)
-   - `REACT_APP_STUN_SERVERS`: `stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302`
-
-5. Click "Create Static Site"
+2. Common issues:
+   - Make sure the build command successfully copies the client build files to the correct location
+   - Verify the Node.js version is compatible (Render uses Node.js 18 by default)
+   - Check if the static files are being served correctly
 
 ### Post-Deployment
 
-After deployment, your application will be available at the URLs provided by Render.
+After deployment, your application will be available at the URL provided by Render.
 
 Note that on the free tier of Render:
-- The backend service will spin down after periods of inactivity
+- The service will spin down after periods of inactivity
 - The first request after inactivity may take a moment as the service spins up
 
 ## License

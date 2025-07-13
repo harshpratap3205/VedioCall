@@ -1,28 +1,52 @@
 services:
-  # Backend Server
+  # Combined Backend Server + Frontend
   - type: web
-    name: videocallapp-server
+    name: videocallapp
     env: node
-    region: ohio # Choose the region closest to your users
-    buildCommand: cd server && npm install
+    region: ohio
+    plan: free
+    buildCommand: |
+      # Install server dependencies
+      cd server && npm install
+      
+      # Install client dependencies and build frontend
+      cd ../client && npm install && npm run build
+      
+      # Copy client build to server directory for serving
+      mkdir -p ../server/client
+      cp -r build/* ../server/client/
     startCommand: cd server && npm start
-    plan: free # Upgrade as needed
     envVars:
       - key: NODE_ENV
         value: production
-    
-  # Frontend Client
-  - type: web
-    name: videocallapp-client
-    env: static
-    region: ohio # Choose the region closest to your users
-    buildCommand: cd client && npm install && npm run build
-    staticPublishPath: ./client/build
-    envVars:
-      - key: REACT_APP_SERVER_URL
-        fromService:
-          name: videocallapp-server
-          type: web
-          property: url
       - key: REACT_APP_STUN_SERVERS
-        value: stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302 
+        value: stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302
+
+  # Alternative: Separate deployment (uncomment if needed)
+  # # Backend Server
+  # - type: web
+  #   name: videocallapp-server
+  #   env: node
+  #   region: ohio
+  #   buildCommand: cd server && npm install
+  #   startCommand: cd server && npm start
+  #   plan: free
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #   
+  # # Frontend Client
+  # - type: static
+  #   name: videocallapp-client
+  #   env: static
+  #   region: ohio
+  #   buildCommand: cd client && npm install && npm run build
+  #   staticPublishPath: ./client/build
+  #   envVars:
+  #     - key: REACT_APP_SERVER_URL
+  #       fromService:
+  #         name: videocallapp-server
+  #         type: web
+  #         property: url
+  #     - key: REACT_APP_STUN_SERVERS
+  #       value: stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302 

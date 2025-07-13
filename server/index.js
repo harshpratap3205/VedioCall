@@ -513,9 +513,6 @@ const io = socketIo(server, {
   allowEIO3: true
 });
 
-// Serve static files (if you have a build folder)
-app.use(express.static(path.join(__dirname, 'build')));
-
 // Store room information and user data
 const rooms = new Map();
 const users = new Map();
@@ -760,10 +757,99 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Serve React app for all other routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+// Add debug route to check environment and file paths
+app.get('/debug', (req, res) => {
+  const fs = require('fs');
+  
+  // Check for client build paths
+  const possiblePaths = [
+    path.join(__dirname, '../client/build'),
+    path.join(__dirname, 'client/build'),
+    path.join(__dirname, 'client'),
+  ];
+  
+  const pathResults = possiblePaths.map(p => {
+    try {
+      const exists = fs.existsSync(p);
+      const hasIndexHtml = exists ? fs.existsSync(path.join(p, 'index.html')) : false;
+      return {
+        path: p,
+        exists,
+        hasIndexHtml,
+        files: exists ? fs.readdirSync(p).slice(0, 10) : [] // Show up to 10 files
+      };
+    } catch (err) {
+      return { path: p, error: err.message };
+    }
+  });
+  
+  res.json({
+    environment: {
+      nodeEnv: process.env.NODE_ENV,
+      port: process.env.PORT,
+      renderService: process.env.RENDER,
+      workingDirectory: process.cwd(),
+    },
+    paths: pathResults,
+    serverInfo: {
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memoryUsage: process.memoryUsage(),
+      activeRooms: rooms.size,
+      activeUsers: users.size
+    }
+  });
 });
+
+// Serve static files from client/build in production
+if (process.env.NODE_ENV === 'production') {
+  // Check multiple possible locations for the client build
+  const possiblePaths = [
+    path.join(__dirname, '../client/build'),    // Standard monorepo structure
+    path.join(__dirname, 'client/build'),       // If client/build was copied to server/client/build
+    path.join(__dirname, 'client')              // If client/build was copied to server/client
+  ];
+  
+  // Find the first path that exists
+  let clientBuildPath;
+  for (const pathToCheck of possiblePaths) {
+    try {
+      // Check if the directory exists
+      if (require('fs').existsSync(pathToCheck) && 
+          require('fs').existsSync(path.join(pathToCheck, 'index.html'))) {
+        clientBuildPath = pathToCheck;
+        break;
+      }
+    } catch (err) {
+      console.log(`Path ${pathToCheck} not found`);
+    }
+  }
+  
+  if (clientBuildPath) {
+    console.log('Serving static files from:', clientBuildPath);
+    
+    // Serve static files
+    app.use(express.static(clientBuildPath));
+    
+    // Handle React routing by serving index.html for all other routes
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(clientBuildPath, 'index.html'));
+    });
+  } else {
+    console.error('Could not find client build directory!');
+    app.get('*', (req, res) => {
+      res.status(500).send('Server configuration error: Client build directory not found');
+    });
+  }
+} else {
+  // In development, just handle the API routes and let React dev server handle frontend
+  app.get('*', (req, res) => {
+    res.json({ 
+      message: 'Server running in development mode',
+      info: 'Frontend should be served by React development server on port 3000'
+    });
+  });
+}
 
 // Start server
 const PORT = process.env.PORT || 3001;
