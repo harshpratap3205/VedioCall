@@ -212,6 +212,25 @@ export const usePeerConnection = () => {
         remoteStream.addTrack(event.track);
         console.log(`Added ${event.track.kind} track to stream for ${peerId}`);
         
+        // Important: For audio tracks, ensure they're properly enabled and unmuted
+        if (event.track.kind === 'audio') {
+          event.track.enabled = true;
+          
+          // Force audio track constraints to ensure proper audio processing
+          try {
+            const constraints = {
+              autoGainControl: true,
+              echoCancellation: true,
+              noiseSuppression: true
+            };
+            
+            event.track.applyConstraints(constraints)
+              .catch(err => console.warn('Could not apply audio constraints to remote track:', err));
+          } catch (err) {
+            console.warn('Error applying constraints to remote audio track:', err);
+          }
+        }
+        
         // Save remote stream
         setRemoteStreams(prev => ({
           ...prev,
@@ -229,6 +248,10 @@ export const usePeerConnection = () => {
         const videoTracks = remoteStream.getVideoTracks();
         
         console.log(`Remote stream tracks for ${peerId}: audio=${audioTracks.length}, video=${videoTracks.length}`);
+        
+        if (audioTracks.length > 0) {
+          console.log(`Remote audio track settings:`, audioTracks[0].getSettings());
+        }
         
         // Listen for track ended events
         event.track.onended = () => console.log(`Remote ${event.track.kind} track from ${peerId} ended`);
@@ -278,6 +301,25 @@ export const usePeerConnection = () => {
       };
       
       const offer = await pc.createOffer(offerOptions);
+      
+      // Ensure offer includes audio and video - modify SDP if needed
+      if (offer.sdp) {
+        // Ensure audio codec is prioritized and proper settings
+        let modifiedSdp = offer.sdp;
+        
+        // Prioritize Opus codec for audio
+        if (modifiedSdp.indexOf('opus/48000') !== -1) {
+          console.log('Optimizing SDP for audio quality');
+          
+          // Set Opus to stereo with high quality for better audio
+          modifiedSdp = modifiedSdp.replace(
+            /(a=rtpmap:\d+ opus\/48000\/2)/,
+            '$1\r\na=fmtp:111 minptime=10;useinbandfec=1;stereo=1;maxplaybackrate=48000'
+          );
+        }
+        
+        offer.sdp = modifiedSdp;
+      }
       
       console.log(`Setting local description (offer) for peer: ${peerId}`);
       await pc.setLocalDescription(offer);

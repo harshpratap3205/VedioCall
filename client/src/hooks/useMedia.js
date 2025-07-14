@@ -128,7 +128,12 @@ export const useMedia = (isVideoCall = true) => {
           channelCount: 2,
           sampleRate: 48000,
           sampleSize: 16,
-          volume: 1.0
+          volume: 1.0,
+          // Prioritize quality
+          latency: 0.01,
+          googEchoCancellation: true,
+          googNoiseSuppression: true,
+          googHighpassFilter: true
         } : false,
         video: videoEnabled ? {
           width: { ideal: 640 },
@@ -169,6 +174,8 @@ export const useMedia = (isVideoCall = true) => {
         // Try to enable audio processing if available
         try {
           const audioTrack = audioTracks[0];
+          audioTrack.enabled = true; // Explicitly enable audio
+          
           const constraints = { 
             autoGainControl: true,
             echoCancellation: true,
@@ -177,6 +184,29 @@ export const useMedia = (isVideoCall = true) => {
           
           await audioTrack.applyConstraints(constraints);
           console.log('Applied audio constraints successfully');
+          
+          // Check if browser supports audio context for further audio processing
+          if (window.AudioContext || window.webkitAudioContext) {
+            try {
+              const AudioContext = window.AudioContext || window.webkitAudioContext;
+              const audioContext = new AudioContext();
+              
+              // Create audio source from track
+              const audioSource = audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
+              
+              // Create audio processors - gain control to boost volume slightly
+              const gainNode = audioContext.createGain();
+              gainNode.gain.value = 1.2; // Boost volume slightly
+              
+              // Connect nodes
+              audioSource.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+              
+              console.log('Enhanced audio processing set up');
+            } catch (err) {
+              console.warn('Could not set up enhanced audio processing:', err);
+            }
+          }
         } catch (err) {
           console.warn('Could not apply audio constraints:', err);
         }

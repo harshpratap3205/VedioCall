@@ -586,33 +586,36 @@ const VideoCall = () => {
         console.log(`User joined: ${userName} (${userId})`);
         showToast(`${userName} joined the call`);
         
-        // Create a peer connection for the new user
-        if (localStream) {
-          console.log("Creating peer connection for new user:", userId);
-          
-          const handleIceCandidate = (candidate) => {
-            if (socket && isConnected && isMountedRef.current) {
-              emit('ice-candidate', { candidate, targetUserId: userId });
-            } else {
-              console.warn("Cannot send ICE candidate: socket not connected or component unmounted");
-            }
-          };
-          
-          createPeerConnection(userId, localStream, handleIceCandidate)
-            .then(() => {
-              // Create and send an offer
-              return createOffer(userId);
-            })
-            .then(offer => {
-              if (offer && isMountedRef.current) {
-                console.log("Sending offer to:", userId);
-                emit('offer', { offer, targetUserId: userId });
+        // Wait a brief moment to ensure media tracks are ready
+        setTimeout(() => {
+          // Create a peer connection for the new user
+          if (localStream) {
+            console.log("Creating peer connection for new user:", userId);
+            
+            const handleIceCandidate = (candidate) => {
+              if (socket && isConnected && isMountedRef.current) {
+                emit('ice-candidate', { candidate, targetUserId: userId });
+              } else {
+                console.warn("Cannot send ICE candidate: socket not connected or component unmounted");
               }
-            })
-            .catch(err => {
-              console.error("Error creating peer connection:", err);
-            });
-        }
+            };
+            
+            createPeerConnection(userId, localStream, handleIceCandidate)
+              .then(() => {
+                // Create and send an offer
+                return createOffer(userId);
+              })
+              .then(offer => {
+                if (offer && isMountedRef.current) {
+                  console.log("Sending offer to:", userId);
+                  emit('offer', { offer, targetUserId: userId });
+                }
+              })
+              .catch(err => {
+                console.error("Error creating peer connection:", err);
+              });
+          }
+        }, 1000); // Short delay to ensure everything is ready
       },
       
       // Handle WebRTC offer
@@ -818,6 +821,35 @@ const VideoCall = () => {
     setDiagnosticData(null);
     setShowDiagnostics(true);
     
+    // Force refresh of connection info
+    const currentConnectionStatus = { ...connectionStatus };
+    const currentRemoteStreams = { ...remoteStreams };
+    
+    // Check browser audio output settings
+    let audioOutputDevice = "Default";
+    try {
+      const audioDevices = await navigator.mediaDevices.enumerateDevices();
+      const outputs = audioDevices.filter(d => d.kind === 'audiooutput');
+      if (outputs.length > 0) {
+        outputs.forEach(device => {
+          console.log(`Available audio output: ${device.label}`);
+        });
+      }
+    } catch (err) {
+      console.error("Error checking audio devices:", err);
+    }
+    
+    // Try to force unmute remote audio tracks
+    Object.entries(currentRemoteStreams).forEach(([id, stream]) => {
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        console.log(`Ensuring audio track for ${id} is enabled`);
+        audioTracks.forEach(track => {
+          track.enabled = true;
+        });
+      }
+    });
+    
     const data = {
       browser: {
         userAgent: navigator.userAgent,
@@ -825,6 +857,8 @@ const VideoCall = () => {
         vendor: navigator.vendor,
         webrtcSupport: !!window.RTCPeerConnection,
         mediaDevicesSupport: !!navigator.mediaDevices?.getUserMedia,
+        audioContext: !!(window.AudioContext || window.webkitAudioContext),
+        audioOutput: audioOutputDevice
       },
       socket: {
         connected: isConnected,
@@ -840,7 +874,8 @@ const VideoCall = () => {
             label: t.label,
             enabled: t.enabled,
             muted: t.muted,
-            readyState: t.readyState
+            readyState: t.readyState,
+            settings: t.getSettings()
           })),
           videoTracks: localStream.getVideoTracks().map(t => ({
             id: t.id,
@@ -858,11 +893,15 @@ const VideoCall = () => {
         joined: hasJoinedRef.current
       },
       peers: {
-        connections: Object.keys(connectionStatus).length,
-        status: connectionStatus,
-        remoteStreams: Object.entries(remoteStreams).map(([id, stream]) => ({
+        connections: Object.keys(currentConnectionStatus).length,
+        status: currentConnectionStatus,
+        remoteStreams: Object.entries(currentRemoteStreams).map(([id, stream]) => ({
           id,
           audioTracks: stream.getAudioTracks().length,
+          audioEnabled: stream.getAudioTracks().length > 0 ? 
+            stream.getAudioTracks()[0].enabled : false,
+          audioSettings: stream.getAudioTracks().length > 0 ? 
+            stream.getAudioTracks()[0].getSettings() : null,
           videoTracks: stream.getVideoTracks().length,
           active: stream.active
         }))
@@ -870,6 +909,37 @@ const VideoCall = () => {
     };
     
     setDiagnosticData(data);
+    
+    // Attempt to fix common audio issues
+    if (Object.entries(currentRemoteStreams).length > 0) {
+      Object.entries(currentRemoteStreams).forEach(([id, stream]) => {
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length === 0) {
+          console.warn(`No audio tracks found for peer ${id} - possible connection issue`);
+        } else {
+          // Try to unmute audio tracks
+          audioTracks.forEach(track => {
+            console.log(`Ensuring audio track is enabled for ${id}`);
+            track.enabled = true;
+          });
+          
+          // Force the audio element to unmute (if in the video element)
+          const videoElements = document.querySelectorAll('video');
+          videoElements.forEach(video => {
+            if (video.srcObject === stream && video !== localVideoRef.current) {
+              console.log(`Ensuring remote video element is not muted`);
+              video.muted = false;
+              video.volume = 1.0;
+              
+              // Try to play if paused
+              if (video.paused) {
+                video.play().catch(e => console.log("Could not auto-play video:", e));
+              }
+            }
+          });
+        }
+      });
+    }
   };
   
   // Format diagnostic data for display
@@ -1034,6 +1104,7 @@ const VideoCall = () => {
     const videoRef = useRef(null);
     const [isLoading, setIsLoading] = useState(true);
     const [hasVideo, setHasVideo] = useState(false);
+    const [videoPlayError, setVideoPlayError] = useState(null);
     
     // Debug stream contents
     useEffect(() => {
@@ -1044,6 +1115,9 @@ const VideoCall = () => {
         
         if (videoTracks.length > 0) {
           console.log(`Video track enabled: ${videoTracks[0].enabled}, muted: ${videoTracks[0].muted}, readyState: ${videoTracks[0].readyState}`);
+          setHasVideo(true);
+        } else {
+          setHasVideo(false);
         }
         
         if (audioTracks.length > 0) {
@@ -1052,9 +1126,9 @@ const VideoCall = () => {
       }
     }, [stream, userId]);
     
-    // Check if stream has video tracks and attach stream
+    // Attach stream to video element
     useEffect(() => {
-      if (!stream) {
+      if (!stream || !videoRef.current) {
         setHasVideo(false);
         if (videoRef.current) {
           videoRef.current.srcObject = null;
@@ -1064,55 +1138,34 @@ const VideoCall = () => {
       
       console.log(`Setting up video for ${userId} with stream:`, stream.id);
       
-      // Check for video tracks
-      const videoTrack = stream.getVideoTracks()[0];
-      const hasVideoTracks = !!videoTrack;
-      const isVideoEnabled = hasVideoTracks && videoTrack.enabled;
-      setHasVideo(hasVideoTracks && isVideoEnabled);
-      
-      // Attach stream to video element
-      if (videoRef.current) {
-        try {
-          // Critical fix: Make sure to use a new MediaStream to avoid issues
-          videoRef.current.srcObject = stream;
-          
-          // Force play if autoplay doesn't work
-          const playPromise = videoRef.current.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(err => {
-              console.warn(`Could not play video for ${userId}:`, err.message);
-              
-              // Try to play on user interaction (important for mobile browsers)
-              document.addEventListener('click', function playOnClick() {
-                videoRef.current?.play();
-                document.removeEventListener('click', playOnClick);
+      // Important: Create a new MediaStream from the tracks to avoid issues
+      try {
+        // Attach stream to video element
+        videoRef.current.srcObject = stream;
+        
+        // Force play if autoplay doesn't work
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            console.warn(`Could not autoplay video for ${userId}:`, err.message);
+            setVideoPlayError(`Video playback failed. Click the video to play manually.`);
+            
+            // Add a click handler to play on user interaction
+            if (userId !== 'local') {
+              videoRef.current.addEventListener('click', function playOnClick() {
+                videoRef.current.play()
+                  .then(() => {
+                    setVideoPlayError(null);
+                  })
+                  .catch((e) => {
+                    console.error("Play failed after click:", e);
+                  });
               });
-            });
-          }
-        } catch (err) {
-          console.error(`Error attaching stream for ${userId}:`, err);
+            }
+          });
         }
-      }
-      
-      // Handle track events
-      if (videoTrack) {
-        const handleMute = () => {
-          console.log(`Video track muted for ${userId}`);
-          setHasVideo(false);
-        };
-        
-        const handleUnmute = () => {
-          console.log(`Video track unmuted for ${userId}`);
-          setHasVideo(true);
-        };
-        
-        videoTrack.addEventListener('mute', handleMute);
-        videoTrack.addEventListener('unmute', handleUnmute);
-        
-        return () => {
-          videoTrack.removeEventListener('mute', handleMute);
-          videoTrack.removeEventListener('unmute', handleUnmute);
-        };
+      } catch (err) {
+        console.error(`Error attaching stream for ${userId}:`, err);
       }
     }, [stream, userId]);
     
@@ -1129,6 +1182,15 @@ const VideoCall = () => {
       }
     };
     
+    // Force play for remote videos
+    const handleManualPlay = () => {
+      if (videoRef.current && userId !== 'local') {
+        videoRef.current.play()
+          .then(() => setVideoPlayError(null))
+          .catch(err => console.error("Manual play failed:", err));
+      }
+    };
+    
     return (
       <VideoCard>
         {stream ? (
@@ -1142,14 +1204,31 @@ const VideoCall = () => {
               loading={isLoading}
               mirrored={userId === 'local'}
               onLoadedMetadata={handleVideoLoaded}
+              onClick={handleManualPlay}
               style={{
-                display: hasVideo ? 'block' : 'none',
+                display: 'block', // Always show the video element
                 width: '100%',
                 height: '100%',
                 objectFit: 'cover'
               }}
             />
-            {!hasVideo && (
+            {videoPlayError && userId !== 'local' && (
+              <div style={{
+                position: 'absolute',
+                bottom: '40px',
+                left: '10px',
+                right: '10px',
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                padding: '5px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                textAlign: 'center'
+              }}>
+                {videoPlayError}
+              </div>
+            )}
+            {(!hasVideo || isLoading) && (
               <VideoPlaceholder>
                 {name?.charAt(0)?.toUpperCase() || '?'}
               </VideoPlaceholder>
@@ -1167,8 +1246,27 @@ const VideoCall = () => {
 
   // Final cleanup when component unmounts for real
   useEffect(() => {
+    // Add event listener for beforeunload to properly close connections
+    const handleBeforeUnload = () => {
+      console.log("Page unloading - cleaning up connections");
+      
+      // Leave the room
+      emit('leave-room');
+      
+      // Stop all tracks
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      
+      closeAllPeerConnections();
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
     return () => {
       // This will only run when the component is truly unmounting
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      
       if (!isMountedRef.current) {
         console.log("Component unmounting - final cleanup");
         
@@ -1183,7 +1281,7 @@ const VideoCall = () => {
         }
       }
     };
-  }, [emit, closeAllPeerConnections]);
+  }, [emit, closeAllPeerConnections, localStream]);
 
   // Render username prompt
   if (showUsernamePrompt) {
