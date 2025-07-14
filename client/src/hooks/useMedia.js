@@ -143,27 +143,70 @@ export const useMedia = (isVideoCall = true) => {
         } : false
       };
 
-      // Try with optimized constraints first
-      let stream;
-      try {
-        stream = await tryGetUserMedia(constraints);
-      } catch (initialError) {
-        console.warn('Failed with ideal constraints, trying with minimal constraints:', initialError);
-        
-        // Fall back to minimal constraints if optimal fails
-        const fallbackConstraints = {
-          audio: audioEnabled,
-          video: videoEnabled
-        };
-        
-        stream = await tryGetUserMedia(fallbackConstraints);
+      // CRITICAL FIX: Try to get audio separately first to ensure it works
+      let audioStream = null;
+      let videoStream = null;
+      let combinedStream = null;
+      
+      if (audioEnabled) {
+        try {
+          console.log('Getting audio stream first...');
+          audioStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: constraints.audio,
+            video: false
+          });
+          console.log('Successfully got audio stream with', audioStream.getAudioTracks().length, 'tracks');
+        } catch (audioErr) {
+          console.error('Error getting audio stream:', audioErr);
+          // Continue without audio if it fails
+        }
       }
       
-      console.log('Media access granted:', stream);
+      if (videoEnabled) {
+        try {
+          console.log('Getting video stream...');
+          videoStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: constraints.video
+          });
+          console.log('Successfully got video stream with', videoStream.getVideoTracks().length, 'tracks');
+        } catch (videoErr) {
+          console.error('Error getting video stream:', videoErr);
+          // Continue without video if it fails
+        }
+      }
+      
+      // Create a combined stream with both audio and video tracks
+      combinedStream = new MediaStream();
+      
+      // Add audio tracks if available
+      if (audioStream && audioStream.getAudioTracks().length > 0) {
+        audioStream.getAudioTracks().forEach(track => {
+          console.log('Adding audio track to combined stream');
+          combinedStream.addTrack(track);
+        });
+      }
+      
+      // Add video tracks if available
+      if (videoStream && videoStream.getVideoTracks().length > 0) {
+        videoStream.getVideoTracks().forEach(track => {
+          console.log('Adding video track to combined stream');
+          combinedStream.addTrack(track);
+        });
+      }
+      
+      // If we couldn't get either audio or video separately, try the combined approach
+      if ((!audioStream || audioStream.getAudioTracks().length === 0) && 
+          (!videoStream || videoStream.getVideoTracks().length === 0)) {
+        console.log('Falling back to combined getUserMedia call');
+        combinedStream = await tryGetUserMedia(constraints);
+      }
+      
+      console.log('Media access granted:', combinedStream);
       
       // Check what tracks we actually got
-      const audioTracks = stream.getAudioTracks();
-      const videoTracks = stream.getVideoTracks();
+      const audioTracks = combinedStream.getAudioTracks();
+      const videoTracks = combinedStream.getVideoTracks();
       
       console.log(`Got ${audioTracks.length} audio tracks and ${videoTracks.length} video tracks`);
       
@@ -220,13 +263,13 @@ export const useMedia = (isVideoCall = true) => {
         video: videoEnabled && videoTracks.length > 0
       });
       
-      setLocalStream(stream);
+      setLocalStream(combinedStream);
       setIsAudioEnabled(audioEnabled && audioTracks.length > 0);
       setIsVideoEnabled(videoEnabled && videoTracks.length > 0);
 
       // Attach to video element if exists
       if (localVideoRef.current && videoEnabled && videoTracks.length > 0) {
-        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.srcObject = combinedStream;
         console.log('Attached stream to video element');
       }
       
@@ -234,7 +277,7 @@ export const useMedia = (isVideoCall = true) => {
       await getDevices();
       
       setIsInitializing(false);
-      return stream;
+      return combinedStream;
     } catch (error) {
       console.error('Error accessing media devices:', error);
       setIsInitializing(false);

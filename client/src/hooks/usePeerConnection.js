@@ -91,11 +91,20 @@ export const usePeerConnection = () => {
         
         console.log(`Local tracks: audio=${audioTracks.length}, video=${videoTracks.length}`);
         
-        // Add all tracks to the connection
-        localStream.getTracks().forEach(track => {
-          console.log(`Adding track to peer connection: ${track.kind}`);
-          pc.addTrack(track, localStream);
-        });
+        // CRITICAL FIX: Add tracks one by one with explicit error handling
+        try {
+          if (audioTracks.length > 0) {
+            console.log(`Adding audio track to peer connection: ${peerId}`);
+            pc.addTrack(audioTracks[0], localStream);
+          }
+          
+          if (videoTracks.length > 0) {
+            console.log(`Adding video track to peer connection: ${peerId}`);
+            pc.addTrack(videoTracks[0], localStream);
+          }
+        } catch (err) {
+          console.error(`Error adding tracks to peer connection: ${err.message}`);
+        }
       } else {
         console.warn(`No local stream available for peer: ${peerId}`);
       }
@@ -201,11 +210,17 @@ export const usePeerConnection = () => {
       pc.ontrack = (event) => {
         console.log(`Received remote track from ${peerId}:`, event.track.kind);
         
-        // Create a new MediaStream if one doesn't exist for this peer
+        // CRITICAL FIX: Create a new MediaStream if one doesn't exist for this peer
         let remoteStream = remoteStreams[peerId];
         if (!remoteStream) {
           remoteStream = new MediaStream();
           console.log(`Creating new MediaStream for ${peerId}`);
+          
+          // Save remote stream immediately to state to ensure it's available
+          setRemoteStreams(prev => ({
+            ...prev,
+            [peerId]: remoteStream
+          }));
         }
         
         // Add the track to our remote stream
@@ -231,7 +246,12 @@ export const usePeerConnection = () => {
           }
         }
         
-        // Save remote stream
+        // For video tracks, ensure they're enabled
+        if (event.track.kind === 'video') {
+          event.track.enabled = true;
+        }
+        
+        // Update remote streams state again to ensure it contains the new track
         setRemoteStreams(prev => ({
           ...prev,
           [peerId]: remoteStream
@@ -278,7 +298,7 @@ export const usePeerConnection = () => {
       setConnectionError(`Failed to create connection: ${error.message}`);
       return null;
     }
-  }, [checkWebRTCSupport]);
+  }, [checkWebRTCSupport, remoteStreams]);
 
   // Create offer
   const createOffer = useCallback(async (peerId) => {

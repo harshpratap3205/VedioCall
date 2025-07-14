@@ -383,7 +383,8 @@ const VideoCall = () => {
     handleAnswer,
     addIceCandidate,
     closePeerConnection,
-    closeAllPeerConnections
+    closeAllPeerConnections,
+    hasPeerConnection
   } = usePeerConnection();
 
   const remoteVideoRefs = useRef(new Map());
@@ -600,9 +601,10 @@ const VideoCall = () => {
               }
             };
             
+            // CRITICAL FIX: Create connection and immediately send offer
             createPeerConnection(userId, localStream, handleIceCandidate)
               .then(() => {
-                // Create and send an offer
+                console.log("Peer connection created, creating offer...");
                 return createOffer(userId);
               })
               .then(offer => {
@@ -613,6 +615,23 @@ const VideoCall = () => {
               })
               .catch(err => {
                 console.error("Error creating peer connection:", err);
+                
+                // Try again after a short delay if it failed
+                setTimeout(() => {
+                  if (isMountedRef.current) {
+                    console.log("Retrying connection setup for:", userId);
+                    createPeerConnection(userId, localStream, handleIceCandidate)
+                      .then(() => createOffer(userId))
+                      .then(offer => {
+                        if (offer && isMountedRef.current) {
+                          emit('offer', { offer, targetUserId: userId });
+                        }
+                      })
+                      .catch(retryErr => {
+                        console.error("Retry failed:", retryErr);
+                      });
+                  }
+                }, 2000);
               });
           }
         }, 1000); // Short delay to ensure everything is ready
@@ -633,15 +652,51 @@ const VideoCall = () => {
             }
           };
           
+          // CRITICAL FIX: Ensure we have a clean peer connection
+          if (hasPeerConnection(fromUserId)) {
+            console.log("Closing existing peer connection before handling offer");
+            closePeerConnection(fromUserId);
+          }
+          
           // Handle the offer and create an answer
+          console.log("Creating new peer connection for offer");
           const answer = await handleOffer(fromUserId, offer, localStream, handleIceCandidate);
           
           if (answer && isMountedRef.current) {
             console.log("Sending answer to:", fromUserId);
             emit('answer', { answer, targetUserId: fromUserId });
+            
+            // Update participants list if needed
+            const participantExists = participants.some(p => p.id === fromUserId);
+            if (!participantExists) {
+              setParticipants(prev => [...prev, { id: fromUserId, name: fromUserName }]);
+            }
           }
         } catch (error) {
           console.error("Error handling offer:", error);
+          
+          // Try again after a short delay
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              try {
+                console.log("Retrying offer handling for:", fromUserId);
+                const handleIceCandidate = (candidate) => {
+                  if (socket && isConnected) {
+                    emit('ice-candidate', { candidate, targetUserId: fromUserId });
+                  }
+                };
+                
+                handleOffer(fromUserId, offer, localStream, handleIceCandidate)
+                  .then(answer => {
+                    if (answer) {
+                      emit('answer', { answer, targetUserId: fromUserId });
+                    }
+                  });
+              } catch (retryErr) {
+                console.error("Retry failed:", retryErr);
+              }
+            }
+          }, 2000);
         }
       },
       
@@ -707,7 +762,7 @@ const VideoCall = () => {
         hasSetupEventHandlersRef.current = false;
       }
     };
-  }, [socket, isConnected, localStream, isMediaReady, emit, createPeerConnection, createOffer, handleOffer, handleAnswer, addIceCandidate, closePeerConnection]);
+  }, [socket, isConnected, localStream, isMediaReady, emit, createPeerConnection, createOffer, handleOffer, handleAnswer, addIceCandidate, closePeerConnection, hasPeerConnection, participants]);
 
   // Log important state changes
   useEffect(() => {
@@ -1126,7 +1181,7 @@ const VideoCall = () => {
       }
     }, [stream, userId]);
     
-    // Attach stream to video element
+    // Attach stream to video element with improved handling
     useEffect(() => {
       if (!stream || !videoRef.current) {
         setHasVideo(false);
@@ -1138,10 +1193,27 @@ const VideoCall = () => {
       
       console.log(`Setting up video for ${userId} with stream:`, stream.id);
       
-      // Important: Create a new MediaStream from the tracks to avoid issues
+      // CRITICAL FIX: Create a fresh MediaStream to avoid issues
       try {
-        // Attach stream to video element
-        videoRef.current.srcObject = stream;
+        // For remote streams, create a completely new MediaStream with the tracks
+        if (userId !== 'local') {
+          const newStream = new MediaStream();
+          
+          // Add all tracks from the original stream to the new one
+          stream.getTracks().forEach(track => {
+            console.log(`Adding ${track.kind} track to new stream for ${userId}`);
+            newStream.addTrack(track);
+            
+            // Ensure track is enabled
+            track.enabled = true;
+          });
+          
+          // Attach the new stream to video element
+          videoRef.current.srcObject = newStream;
+        } else {
+          // For local stream, use it directly
+          videoRef.current.srcObject = stream;
+        }
         
         // Force play if autoplay doesn't work
         const playPromise = videoRef.current.play();
@@ -1167,6 +1239,20 @@ const VideoCall = () => {
       } catch (err) {
         console.error(`Error attaching stream for ${userId}:`, err);
       }
+      
+      // Add a periodic check to ensure remote videos are playing
+      if (userId !== 'local') {
+        const checkInterval = setInterval(() => {
+          if (videoRef.current && videoRef.current.paused) {
+            console.log(`Remote video for ${userId} is paused, attempting to play`);
+            videoRef.current.play().catch(err => {
+              console.warn(`Auto-play retry failed: ${err.message}`);
+            });
+          }
+        }, 5000);
+        
+        return () => clearInterval(checkInterval);
+      }
     }, [stream, userId]);
     
     // Handle video loading
@@ -1179,12 +1265,20 @@ const VideoCall = () => {
         const audioTracks = stream.getAudioTracks();
         console.log(`Audio tracks for ${userId}:`, audioTracks.length, 
                    audioTracks.map(t => `${t.label} (enabled: ${t.enabled})`));
+                   
+        // Ensure video is not muted for remote streams
+        if (videoRef.current) {
+          videoRef.current.muted = false;
+          videoRef.current.volume = 1.0;
+        }
       }
     };
     
     // Force play for remote videos
     const handleManualPlay = () => {
       if (videoRef.current && userId !== 'local') {
+        videoRef.current.muted = false;
+        videoRef.current.volume = 1.0;
         videoRef.current.play()
           .then(() => setVideoPlayError(null))
           .catch(err => console.error("Manual play failed:", err));
