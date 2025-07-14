@@ -44,7 +44,7 @@ export const usePeerConnection = () => {
     return true;
   }, []);
 
-  // Initialize a new peer connection
+  // Initialize a new peer connection with improved handling
   const createPeerConnection = useCallback(async (peerId, localStream, onIceCandidate) => {
     if (!checkWebRTCSupport()) {
       return null;
@@ -60,7 +60,9 @@ export const usePeerConnection = () => {
         // Improve connection stability
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
+        rtcpMuxPolicy: 'require',
+        // Set appropriate constraints
+        sdpSemantics: 'unified-plan'
       };
 
       const pc = new RTCPeerConnection(configuration);
@@ -73,7 +75,7 @@ export const usePeerConnection = () => {
         iceCandidatesQueueRef.current[peerId] = [];
       }
       
-      // Update peer connection status
+      // Update connection status
       setConnectionStatus(prev => ({
         ...prev,
         [peerId]: 'connecting'
@@ -82,7 +84,16 @@ export const usePeerConnection = () => {
       // Add local tracks to the connection
       if (localStream) {
         console.log(`Adding local tracks to peer connection: ${peerId}`);
+        
+        // Get all tracks from local stream
+        const audioTracks = localStream.getAudioTracks();
+        const videoTracks = localStream.getVideoTracks();
+        
+        console.log(`Local tracks: audio=${audioTracks.length}, video=${videoTracks.length}`);
+        
+        // Add all tracks to the connection
         localStream.getTracks().forEach(track => {
+          console.log(`Adding track to peer connection: ${track.kind}`);
           pc.addTrack(track, localStream);
         });
       } else {
@@ -99,6 +110,8 @@ export const usePeerConnection = () => {
           } else {
             console.warn(`No ICE candidate handler for peer: ${peerId}`);
           }
+        } else {
+          console.log(`All ICE candidates gathered for peer: ${peerId}`);
         }
       };
       
@@ -114,18 +127,23 @@ export const usePeerConnection = () => {
               ...prev,
               [peerId]: 'connected'
             }));
+            console.log(`🎉 Connection established with peer: ${peerId}`);
             break;
             
           case 'failed':
             console.error(`ICE connection failed for peer: ${peerId}`);
-        setConnectionStatus(prev => ({
-          ...prev,
+            setConnectionStatus(prev => ({
+              ...prev,
               [peerId]: 'failed'
             }));
             
             // Try to restart ICE connection
             console.log(`Attempting to restart ICE connection for peer: ${peerId}`);
-            restartIce(peerId);
+            if (pc.restartIce) {
+              pc.restartIce();
+            } else {
+              restartIce(peerId);
+            }
             break;
             
           case 'disconnected':
@@ -179,15 +197,18 @@ export const usePeerConnection = () => {
         }
       };
       
-      // Handle remote track events
+      // Handle remote track events - THIS IS CRITICAL FOR RECEIVING AUDIO/VIDEO
       pc.ontrack = (event) => {
-        console.log(`Received remote track from ${peerId}:`, event.streams);
+        console.log(`Received remote track from ${peerId}:`, event.track.kind);
         
         if (event.streams && event.streams[0]) {
+          const remoteStream = event.streams[0];
+          console.log(`Adding remote stream from ${peerId}:`, remoteStream.id);
+          
           // Save remote stream
           setRemoteStreams(prev => ({
             ...prev,
-            [peerId]: event.streams[0]
+            [peerId]: remoteStream
           }));
           
           // Update connection status
@@ -195,6 +216,21 @@ export const usePeerConnection = () => {
             ...prev,
             [peerId]: 'connected'
           }));
+          
+          // Log audio/video tracks
+          const audioTracks = remoteStream.getAudioTracks();
+          const videoTracks = remoteStream.getVideoTracks();
+          
+          console.log(`Remote stream tracks for ${peerId}: audio=${audioTracks.length}, video=${videoTracks.length}`);
+          
+          // Listen for track ended events
+          [...audioTracks, ...videoTracks].forEach(track => {
+            track.onended = () => console.log(`Remote ${track.kind} track from ${peerId} ended`);
+            track.onmute = () => console.log(`Remote ${track.kind} track from ${peerId} muted`);
+            track.onunmute = () => console.log(`Remote ${track.kind} track from ${peerId} unmuted`);
+          });
+        } else {
+          console.warn(`Received track event without stream for ${peerId}`);
         }
       };
       
@@ -206,7 +242,7 @@ export const usePeerConnection = () => {
         iceCandidatesQueueRef.current[peerId] = [];
         
         candidates.forEach(candidate => {
-          pc.addIceCandidate(candidate)
+          pc.addIceCandidate(new RTCIceCandidate(candidate))
             .catch(err => console.error(`Error adding queued ICE candidate for ${peerId}:`, err));
         });
       }

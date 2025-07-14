@@ -151,9 +151,15 @@ const Chat = ({ socket, roomId, userName }) => {
   
   // Listen for chat messages
   useEffect(() => {
-    if (!socket) return;
+    if (!socket) {
+      console.warn('Chat component: Socket not available');
+      return;
+    }
+    
+    console.log('Chat: Setting up socket event listeners');
     
     const handleChatMessage = (message) => {
+      console.log('Chat: Received message:', message);
       setMessages(prev => [...prev, message]);
       
       // Increment unread count if chat is collapsed
@@ -162,7 +168,8 @@ const Chat = ({ socket, roomId, userName }) => {
       }
     };
     
-    const handleUserJoined = ({ userName }) => {
+    const handleUserJoined = ({ userId, userName }) => {
+      console.log('Chat: User joined:', userName);
       const systemMessage = {
         id: `system-${Date.now()}`,
         type: 'system',
@@ -173,7 +180,8 @@ const Chat = ({ socket, roomId, userName }) => {
       setMessages(prev => [...prev, systemMessage]);
     };
     
-    const handleUserLeft = ({ userName }) => {
+    const handleUserLeft = ({ userId, userName }) => {
+      console.log('Chat: User left:', userName);
       const systemMessage = {
         id: `system-${Date.now()}`,
         type: 'system',
@@ -184,11 +192,22 @@ const Chat = ({ socket, roomId, userName }) => {
       setMessages(prev => [...prev, systemMessage]);
     };
     
+    // Register event handlers
     socket.on('chat-message', handleChatMessage);
     socket.on('user-joined', handleUserJoined);
     socket.on('user-left', handleUserLeft);
     
+    // Add system message when chat is initialized
+    const initMessage = {
+      id: `system-init-${Date.now()}`,
+      type: 'system',
+      message: 'Chat initialized. Messages are only visible to people in this call.',
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, initMessage]);
+    
     return () => {
+      // Clean up event handlers
       socket.off('chat-message', handleChatMessage);
       socket.off('user-joined', handleUserJoined);
       socket.off('user-left', handleUserLeft);
@@ -216,13 +235,30 @@ const Chat = ({ socket, roomId, userName }) => {
   const sendMessage = (e) => {
     e.preventDefault();
     
-    if (!newMessage.trim() || !socket) return;
+    if (!newMessage.trim() || !socket) {
+      console.warn('Cannot send message: empty message or socket not connected');
+      return;
+    }
     
+    console.log('Sending chat message:', newMessage.trim());
+    
+    // Send the message
     socket.emit('chat-message', {
       roomId,
       message: newMessage.trim()
     });
     
+    // Add message locally for immediate feedback (optional)
+    const localMessage = {
+      id: `local-${Date.now()}`,
+      userId: 'local',
+      userName: `${userName} (You)`,
+      message: newMessage.trim(),
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, localMessage]);
+    
+    // Clear input
     setNewMessage('');
   };
   
@@ -252,32 +288,30 @@ const Chat = ({ socket, roomId, userName }) => {
         <>
           <ChatMessages>
             {messages.length === 0 ? (
-              <SystemMessage>No messages yet. Say hello!</SystemMessage>
+              <SystemMessage>No messages yet</SystemMessage>
             ) : (
-              messages.map(msg => {
-                const isOwn = msg.userId === socket.id;
-                const isSystem = msg.type === 'system';
-                
-                if (isSystem) {
+              messages.map((message) => {
+                // System message
+                if (message.type === 'system') {
                   return (
-                    <SystemMessage key={msg.id}>
-                      {msg.message}
+                    <SystemMessage key={message.id}>
+                      {message.message}
                     </SystemMessage>
                   );
                 }
                 
+                // Regular message
+                const isOwn = message.userId === 'local' || 
+                             socket && message.userId === socket.id;
+                
                 return (
-                  <div key={msg.id}>
+                  <div key={message.id}>
                     <MessageBubble isOwn={isOwn}>
-                      {!isOwn && (
-                        <div style={{ fontWeight: 'bold', fontSize: '0.8rem', marginBottom: '4px' }}>
-                          {msg.userName}
-                        </div>
-                      )}
-                      {msg.message}
+                      {!isOwn && <strong>{message.userName}: </strong>}
+                      {message.message}
                     </MessageBubble>
                     <MessageMeta isOwn={isOwn}>
-                      {formatTime(msg.timestamp)}
+                      {formatTime(message.timestamp)}
                     </MessageMeta>
                   </div>
                 );
@@ -286,8 +320,8 @@ const Chat = ({ socket, roomId, userName }) => {
             <div ref={messagesEndRef} />
           </ChatMessages>
           
-          <ChatInput>
-            <form onSubmit={sendMessage} style={{ display: 'flex', width: '100%', gap: '8px' }}>
+          <form onSubmit={sendMessage}>
+            <ChatInput>
               <MessageInput
                 type="text"
                 placeholder="Type a message..."
@@ -295,11 +329,14 @@ const Chat = ({ socket, roomId, userName }) => {
                 onChange={(e) => setNewMessage(e.target.value)}
                 autoFocus
               />
-              <SendButton type="submit" disabled={!newMessage.trim()}>
+              <SendButton 
+                type="submit"
+                disabled={!newMessage.trim() || !socket}
+              >
                 Send
               </SendButton>
-            </form>
-          </ChatInput>
+            </ChatInput>
+          </form>
         </>
       )}
     </ChatContainer>

@@ -744,35 +744,66 @@ const VideoCall = () => {
     
     // Check if stream has video tracks and attach stream
     useEffect(() => {
-      if (stream) {
-        const videoTrack = stream.getVideoTracks()[0];
-        const hasVideoTracks = !!videoTrack;
-        const isVideoEnabled = hasVideoTracks && videoTrack.enabled;
-        setHasVideo(hasVideoTracks && isVideoEnabled);
-
-        // Attach stream to video element
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          console.log(`Attached ${userId} stream to video element`);
-        }
-        
-        if (videoTrack) {
-          const handleMute = () => setHasVideo(false);
-          const handleUnmute = () => setHasVideo(true);
-          
-          videoTrack.addEventListener('mute', handleMute);
-          videoTrack.addEventListener('unmute', handleUnmute);
-          
-          return () => {
-            videoTrack.removeEventListener('mute', handleMute);
-            videoTrack.removeEventListener('unmute', handleUnmute);
-          };
-        }
-      } else {
+      if (!stream) {
         setHasVideo(false);
         if (videoRef.current) {
           videoRef.current.srcObject = null;
         }
+        return;
+      }
+      
+      console.log(`Setting up video for ${userId} with stream:`, stream.id);
+      
+      // Check for video tracks
+      const videoTrack = stream.getVideoTracks()[0];
+      const hasVideoTracks = !!videoTrack;
+      const isVideoEnabled = hasVideoTracks && videoTrack.enabled;
+      setHasVideo(hasVideoTracks && isVideoEnabled);
+      
+      // Attach stream to video element
+      if (videoRef.current) {
+        try {
+          videoRef.current.srcObject = stream;
+          console.log(`Attached ${userId} stream to video element`);
+          
+          // Force play if autoplay doesn't work
+          if (videoRef.current.paused) {
+            videoRef.current.play().catch(err => {
+              console.warn(`Could not play video for ${userId}:`, err.message);
+            });
+          }
+        } catch (err) {
+          console.error(`Error attaching stream for ${userId}:`, err);
+        }
+      }
+      
+      // Handle track events
+      if (videoTrack) {
+        const handleMute = () => {
+          console.log(`Video track muted for ${userId}`);
+          setHasVideo(false);
+        };
+        
+        const handleUnmute = () => {
+          console.log(`Video track unmuted for ${userId}`);
+          setHasVideo(true);
+        };
+        
+        videoTrack.addEventListener('mute', handleMute);
+        videoTrack.addEventListener('unmute', handleUnmute);
+        
+        // Also check audio
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          console.log(`Audio track detected for ${userId}, enabled:`, audioTrack.enabled);
+        } else {
+          console.warn(`No audio track found for ${userId}`);
+        }
+        
+        return () => {
+          videoTrack.removeEventListener('mute', handleMute);
+          videoTrack.removeEventListener('unmute', handleUnmute);
+        };
       }
     }, [stream, userId]);
     
@@ -780,6 +811,13 @@ const VideoCall = () => {
     const handleVideoLoaded = () => {
       setIsLoading(false);
       console.log(`Video loaded for ${userId}`);
+      
+      // Double check audio output
+      if (stream && userId !== 'local') {
+        const audioTracks = stream.getAudioTracks();
+        console.log(`Audio tracks for ${userId}:`, audioTracks.length, 
+                   audioTracks.map(t => `${t.label} (enabled: ${t.enabled})`));
+      }
     };
     
     return (
@@ -790,7 +828,7 @@ const VideoCall = () => {
               ref={videoRef}
               autoPlay
               playsInline
-              muted={userId === 'local'}
+              muted={userId === 'local'} // Only mute local video
               loading={isLoading}
               mirrored={userId === 'local'}
               onLoadedMetadata={handleVideoLoaded}
@@ -882,7 +920,7 @@ const VideoCall = () => {
         
         {/* Remote videos */}
         {Object.entries(remoteStreams).map(([userId, stream]) => {
-          const participant = participants.find(p => p.id === userId);
+          const participant = participants.find(p => p.id === userId) || { name: "Unknown User" };
           return (
             <VideoComponent 
               key={userId}
@@ -935,8 +973,8 @@ const VideoCall = () => {
         </ControlButton>
       </Controls>
       
-      {/* Chat component */}
-      <Chat roomId={roomId} userName={userName} />
+      {/* Chat component - pass socket prop to enable messaging */}
+      <Chat socket={socket} roomId={roomId} userName={userName} />
       
       {/* Error overlay */}
       {connectionError && (
