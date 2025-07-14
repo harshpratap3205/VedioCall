@@ -248,6 +248,81 @@ const UsernameButton = styled.button`
   }
 `;
 
+// Add a diagnostic button to troubleshoot video and audio issues
+const DiagnosticButton = styled.button`
+  position: absolute;
+  bottom: 100px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+  cursor: pointer;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  &:hover {
+    background: rgba(0, 0, 0, 0.7);
+  }
+`;
+
+// Diagnostic overlay component
+const DiagnosticOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 20px;
+  z-index: 1000;
+  overflow-y: auto;
+  font-family: monospace;
+`;
+
+const DiagnosticTitle = styled.h2`
+  color: #28a745;
+  margin-bottom: 20px;
+`;
+
+const DiagnosticSection = styled.div`
+  margin-bottom: 15px;
+  border-bottom: 1px solid #444;
+  padding-bottom: 15px;
+`;
+
+const DiagnosticClose = styled.button`
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 8px 15px;
+  cursor: pointer;
+  
+  &:hover {
+    background: #bd2130;
+  }
+`;
+
+const DiagnosticItem = styled.div`
+  margin-bottom: 8px;
+  display: flex;
+  
+  &.success { color: #28a745; }
+  &.warning { color: #ffc107; }
+  &.error { color: #dc3545; }
+  &.info { color: #17a2b8; }
+`;
+
 const VideoCall = () => {
   const { roomId } = useParams();
   const location = useLocation();
@@ -269,6 +344,8 @@ const VideoCall = () => {
   const [connectionError, setConnectionError] = useState(null);
   const [toast, setToast] = useState(null);
   const [isMediaReady, setIsMediaReady] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagnosticData, setDiagnosticData] = useState(null);
   
   // Custom hooks
   const { socket, isConnected, connectionError: socketError, emit: originalEmit, on, off } = useSocket();
@@ -736,11 +813,244 @@ const VideoCall = () => {
       });
   };
 
+  // Run diagnostics to troubleshoot video/audio issues
+  const runDiagnostics = async () => {
+    setDiagnosticData(null);
+    setShowDiagnostics(true);
+    
+    const data = {
+      browser: {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        vendor: navigator.vendor,
+        webrtcSupport: !!window.RTCPeerConnection,
+        mediaDevicesSupport: !!navigator.mediaDevices?.getUserMedia,
+      },
+      socket: {
+        connected: isConnected,
+        socketId: socket?.id || 'Not connected',
+        error: socketError || 'None'
+      },
+      media: {
+        localStream: localStream ? {
+          id: localStream.id,
+          active: localStream.active,
+          audioTracks: localStream.getAudioTracks().map(t => ({
+            id: t.id,
+            label: t.label,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState
+          })),
+          videoTracks: localStream.getVideoTracks().map(t => ({
+            id: t.id,
+            label: t.label,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState
+          }))
+        } : 'No local stream',
+        error: mediaError || 'None'
+      },
+      room: {
+        id: roomId,
+        participants: participants.length,
+        joined: hasJoinedRef.current
+      },
+      peers: {
+        connections: Object.keys(connectionStatus).length,
+        status: connectionStatus,
+        remoteStreams: Object.entries(remoteStreams).map(([id, stream]) => ({
+          id,
+          audioTracks: stream.getAudioTracks().length,
+          videoTracks: stream.getVideoTracks().length,
+          active: stream.active
+        }))
+      }
+    };
+    
+    setDiagnosticData(data);
+  };
+  
+  // Format diagnostic data for display
+  const renderDiagnostics = () => {
+    if (!diagnosticData) return <p>Loading diagnostics...</p>;
+    
+    return (
+      <>
+        <DiagnosticTitle>WebRTC Diagnostics</DiagnosticTitle>
+        
+        <DiagnosticSection>
+          <h3>Browser</h3>
+          <DiagnosticItem className={diagnosticData.browser.webrtcSupport ? "success" : "error"}>
+            WebRTC Support: {diagnosticData.browser.webrtcSupport ? "✅ Yes" : "❌ No"}
+          </DiagnosticItem>
+          <DiagnosticItem className={diagnosticData.browser.mediaDevicesSupport ? "success" : "error"}>
+            Media Devices API: {diagnosticData.browser.mediaDevicesSupport ? "✅ Yes" : "❌ No"}
+          </DiagnosticItem>
+          <DiagnosticItem className="info">User Agent: {diagnosticData.browser.userAgent}</DiagnosticItem>
+        </DiagnosticSection>
+        
+        <DiagnosticSection>
+          <h3>Socket Connection</h3>
+          <DiagnosticItem className={diagnosticData.socket.connected ? "success" : "error"}>
+            Connected: {diagnosticData.socket.connected ? "✅ Yes" : "❌ No"}
+          </DiagnosticItem>
+          <DiagnosticItem className="info">Socket ID: {diagnosticData.socket.socketId}</DiagnosticItem>
+          <DiagnosticItem className={diagnosticData.socket.error === 'None' ? "success" : "error"}>
+            Error: {diagnosticData.socket.error}
+          </DiagnosticItem>
+        </DiagnosticSection>
+        
+        <DiagnosticSection>
+          <h3>Media Status</h3>
+          {typeof diagnosticData.media.localStream === 'string' ? (
+            <DiagnosticItem className="error">{diagnosticData.media.localStream}</DiagnosticItem>
+          ) : (
+            <>
+              <DiagnosticItem className="info">Stream ID: {diagnosticData.media.localStream.id}</DiagnosticItem>
+              <DiagnosticItem className={diagnosticData.media.localStream.active ? "success" : "error"}>
+                Stream Active: {diagnosticData.media.localStream.active ? "✅ Yes" : "❌ No"}
+              </DiagnosticItem>
+              
+              <h4>Audio Tracks ({diagnosticData.media.localStream.audioTracks.length})</h4>
+              {diagnosticData.media.localStream.audioTracks.length === 0 ? (
+                <DiagnosticItem className="error">❌ No audio tracks found</DiagnosticItem>
+              ) : (
+                diagnosticData.media.localStream.audioTracks.map((track, i) => (
+                  <div key={`audio-${i}`}>
+                    <DiagnosticItem className={track.enabled ? "success" : "error"}>
+                      Enabled: {track.enabled ? "✅ Yes" : "❌ No"}
+                    </DiagnosticItem>
+                    <DiagnosticItem className={track.muted ? "error" : "success"}>
+                      Muted: {track.muted ? "❌ Yes" : "✅ No"}
+                    </DiagnosticItem>
+                    <DiagnosticItem className="info">Label: {track.label}</DiagnosticItem>
+                  </div>
+                ))
+              )}
+              
+              <h4>Video Tracks ({diagnosticData.media.localStream.videoTracks.length})</h4>
+              {diagnosticData.media.localStream.videoTracks.length === 0 ? (
+                <DiagnosticItem className="error">❌ No video tracks found</DiagnosticItem>
+              ) : (
+                diagnosticData.media.localStream.videoTracks.map((track, i) => (
+                  <div key={`video-${i}`}>
+                    <DiagnosticItem className={track.enabled ? "success" : "error"}>
+                      Enabled: {track.enabled ? "✅ Yes" : "❌ No"}
+                    </DiagnosticItem>
+                    <DiagnosticItem className={track.muted ? "error" : "success"}>
+                      Muted: {track.muted ? "❌ Yes" : "✅ No"}
+                    </DiagnosticItem>
+                    <DiagnosticItem className="info">Label: {track.label}</DiagnosticItem>
+                  </div>
+                ))
+              )}
+            </>
+          )}
+        </DiagnosticSection>
+        
+        <DiagnosticSection>
+          <h3>Remote Peers</h3>
+          <DiagnosticItem className="info">
+            Total Connections: {diagnosticData.peers.connections}
+          </DiagnosticItem>
+          
+          <h4>Remote Streams</h4>
+          {diagnosticData.peers.remoteStreams.length === 0 ? (
+            <DiagnosticItem className="error">❌ No remote streams found</DiagnosticItem>
+          ) : (
+            diagnosticData.peers.remoteStreams.map((stream, i) => (
+              <div key={`stream-${i}`} style={{marginBottom: '10px'}}>
+                <DiagnosticItem className={stream.active ? "success" : "error"}>
+                  Stream {i+1} Active: {stream.active ? "✅ Yes" : "❌ No"}
+                </DiagnosticItem>
+                <DiagnosticItem className={stream.audioTracks > 0 ? "success" : "error"}>
+                  Audio Tracks: {stream.audioTracks || "❌ None"}
+                </DiagnosticItem>
+                <DiagnosticItem className={stream.videoTracks > 0 ? "success" : "error"}>
+                  Video Tracks: {stream.videoTracks || "❌ None"}
+                </DiagnosticItem>
+              </div>
+            ))
+          )}
+          
+          <h4>Connection Status</h4>
+          {Object.entries(diagnosticData.peers.status).map(([peerId, status]) => (
+            <DiagnosticItem 
+              key={peerId}
+              className={status === 'connected' ? 'success' : status === 'connecting' ? 'warning' : 'error'}
+            >
+              Peer {peerId.slice(0, 6)}: {status}
+            </DiagnosticItem>
+          ))}
+        </DiagnosticSection>
+        
+        <DiagnosticSection>
+          <h3>Troubleshooting</h3>
+          
+          {!diagnosticData.socket.connected && (
+            <DiagnosticItem className="error">
+              ❌ Socket not connected. Check your internet connection and try refreshing the page.
+            </DiagnosticItem>
+          )}
+          
+          {typeof diagnosticData.media.localStream === 'string' && (
+            <DiagnosticItem className="error">
+              ❌ Local media stream not available. Try allowing camera and microphone permissions.
+            </DiagnosticItem>
+          )}
+          
+          {diagnosticData.media.localStream && diagnosticData.media.localStream.audioTracks.length === 0 && (
+            <DiagnosticItem className="error">
+              ❌ No audio track found. Check if your microphone is properly connected and not used by another application.
+            </DiagnosticItem>
+          )}
+          
+          {diagnosticData.media.localStream && diagnosticData.media.localStream.videoTracks.length === 0 && (
+            <DiagnosticItem className="error">
+              ❌ No video track found. Check if your camera is properly connected and not used by another application.
+            </DiagnosticItem>
+          )}
+          
+          {diagnosticData.peers.remoteStreams.length === 0 && diagnosticData.room.participants > 0 && (
+            <DiagnosticItem className="error">
+              ❌ No remote streams despite having participants. WebRTC connection may have failed.
+            </DiagnosticItem>
+          )}
+          
+          {diagnosticData.peers.remoteStreams.some(s => s.audioTracks === 0) && (
+            <DiagnosticItem className="error">
+              ❌ Remote stream missing audio tracks. The other user may have microphone issues.
+            </DiagnosticItem>
+          )}
+        </DiagnosticSection>
+      </>
+    );
+  };
+
   // Video component to handle rendering and stability
   const VideoComponent = React.memo(({ userId, stream, name }) => {
     const videoRef = useRef(null);
     const [isLoading, setIsLoading] = useState(true);
     const [hasVideo, setHasVideo] = useState(false);
+    
+    // Debug stream contents
+    useEffect(() => {
+      if (stream) {
+        const videoTracks = stream.getVideoTracks();
+        const audioTracks = stream.getAudioTracks();
+        console.log(`Stream for ${userId} has ${videoTracks.length} video tracks and ${audioTracks.length} audio tracks`);
+        
+        if (videoTracks.length > 0) {
+          console.log(`Video track enabled: ${videoTracks[0].enabled}, muted: ${videoTracks[0].muted}, readyState: ${videoTracks[0].readyState}`);
+        }
+        
+        if (audioTracks.length > 0) {
+          console.log(`Audio track enabled: ${audioTracks[0].enabled}, muted: ${audioTracks[0].muted}, readyState: ${audioTracks[0].readyState}`);
+        }
+      }
+    }, [stream, userId]);
     
     // Check if stream has video tracks and attach stream
     useEffect(() => {
@@ -763,13 +1073,20 @@ const VideoCall = () => {
       // Attach stream to video element
       if (videoRef.current) {
         try {
+          // Critical fix: Make sure to use a new MediaStream to avoid issues
           videoRef.current.srcObject = stream;
-          console.log(`Attached ${userId} stream to video element`);
           
           // Force play if autoplay doesn't work
-          if (videoRef.current.paused) {
-            videoRef.current.play().catch(err => {
+          const playPromise = videoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(err => {
               console.warn(`Could not play video for ${userId}:`, err.message);
+              
+              // Try to play on user interaction (important for mobile browsers)
+              document.addEventListener('click', function playOnClick() {
+                videoRef.current?.play();
+                document.removeEventListener('click', playOnClick);
+              });
             });
           }
         } catch (err) {
@@ -791,14 +1108,6 @@ const VideoCall = () => {
         
         videoTrack.addEventListener('mute', handleMute);
         videoTrack.addEventListener('unmute', handleUnmute);
-        
-        // Also check audio
-        const audioTrack = stream.getAudioTracks()[0];
-        if (audioTrack) {
-          console.log(`Audio track detected for ${userId}, enabled:`, audioTrack.enabled);
-        } else {
-          console.warn(`No audio track found for ${userId}`);
-        }
         
         return () => {
           videoTrack.removeEventListener('mute', handleMute);
@@ -828,12 +1137,16 @@ const VideoCall = () => {
               ref={videoRef}
               autoPlay
               playsInline
+              controls={userId !== 'local'} // Add controls for remote videos
               muted={userId === 'local'} // Only mute local video
               loading={isLoading}
               mirrored={userId === 'local'}
               onLoadedMetadata={handleVideoLoaded}
               style={{
-                display: hasVideo ? 'block' : 'none'
+                display: hasVideo ? 'block' : 'none',
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover'
               }}
             />
             {!hasVideo && (
@@ -996,6 +1309,18 @@ const VideoCall = () => {
       {/* Toast notification */}
       {toast && (
         <Toast type={toast.type}>{toast.message}</Toast>
+      )}
+      
+      {/* Diagnostic button and overlay */}
+      <DiagnosticButton onClick={runDiagnostics} title="Diagnostics">
+        🔧
+      </DiagnosticButton>
+      
+      {showDiagnostics && (
+        <DiagnosticOverlay>
+          {renderDiagnostics()}
+          <DiagnosticClose onClick={() => setShowDiagnostics(false)}>Close</DiagnosticClose>
+        </DiagnosticOverlay>
       )}
     </VideoContainer>
   );

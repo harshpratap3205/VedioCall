@@ -119,11 +119,16 @@ export const useMedia = (isVideoCall = true) => {
     try {
       console.log(`Requesting media access: video=${videoEnabled}, audio=${audioEnabled}`);
       
+      // Enhanced audio constraints for better quality
       const constraints = {
         audio: audioEnabled ? {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          channelCount: 2,
+          sampleRate: 48000,
+          sampleSize: 16,
+          volume: 1.0
         } : false,
         video: videoEnabled ? {
           width: { ideal: 640 },
@@ -151,18 +156,46 @@ export const useMedia = (isVideoCall = true) => {
       
       console.log('Media access granted:', stream);
       
+      // Check what tracks we actually got
+      const audioTracks = stream.getAudioTracks();
+      const videoTracks = stream.getVideoTracks();
+      
+      console.log(`Got ${audioTracks.length} audio tracks and ${videoTracks.length} video tracks`);
+      
+      // Ensure audio track is properly configured
+      if (audioTracks.length > 0) {
+        console.log(`Audio track settings:`, audioTracks[0].getSettings());
+        
+        // Try to enable audio processing if available
+        try {
+          const audioTrack = audioTracks[0];
+          const constraints = { 
+            autoGainControl: true,
+            echoCancellation: true,
+            noiseSuppression: true
+          };
+          
+          await audioTrack.applyConstraints(constraints);
+          console.log('Applied audio constraints successfully');
+        } catch (err) {
+          console.warn('Could not apply audio constraints:', err);
+        }
+      } else if (audioEnabled) {
+        console.warn('No audio track received despite requesting audio');
+      }
+      
       // Update permissions
       setHasPermissions({
-        audio: audioEnabled && stream.getAudioTracks().length > 0,
-        video: videoEnabled && stream.getVideoTracks().length > 0
+        audio: audioEnabled && audioTracks.length > 0,
+        video: videoEnabled && videoTracks.length > 0
       });
       
       setLocalStream(stream);
-      setIsAudioEnabled(audioEnabled);
-      setIsVideoEnabled(videoEnabled);
+      setIsAudioEnabled(audioEnabled && audioTracks.length > 0);
+      setIsVideoEnabled(videoEnabled && videoTracks.length > 0);
 
       // Attach to video element if exists
-      if (localVideoRef.current && videoEnabled) {
+      if (localVideoRef.current && videoEnabled && videoTracks.length > 0) {
         localVideoRef.current.srcObject = stream;
         console.log('Attached stream to video element');
       }
@@ -198,7 +231,7 @@ export const useMedia = (isVideoCall = true) => {
       setMediaError(errorMessage);
       throw error;
     }
-  }, [isVideoCall, checkMediaSupport, getDevices]);
+  }, [checkMediaSupport, getDevices, isVideoCall, localStream]);
 
   // Toggle audio track
   const toggleAudio = useCallback(() => {

@@ -201,37 +201,39 @@ export const usePeerConnection = () => {
       pc.ontrack = (event) => {
         console.log(`Received remote track from ${peerId}:`, event.track.kind);
         
-        if (event.streams && event.streams[0]) {
-          const remoteStream = event.streams[0];
-          console.log(`Adding remote stream from ${peerId}:`, remoteStream.id);
-          
-          // Save remote stream
-          setRemoteStreams(prev => ({
-            ...prev,
-            [peerId]: remoteStream
-          }));
-          
-          // Update connection status
-          setConnectionStatus(prev => ({
-            ...prev,
-            [peerId]: 'connected'
-          }));
-          
-          // Log audio/video tracks
-          const audioTracks = remoteStream.getAudioTracks();
-          const videoTracks = remoteStream.getVideoTracks();
-          
-          console.log(`Remote stream tracks for ${peerId}: audio=${audioTracks.length}, video=${videoTracks.length}`);
-          
-          // Listen for track ended events
-          [...audioTracks, ...videoTracks].forEach(track => {
-            track.onended = () => console.log(`Remote ${track.kind} track from ${peerId} ended`);
-            track.onmute = () => console.log(`Remote ${track.kind} track from ${peerId} muted`);
-            track.onunmute = () => console.log(`Remote ${track.kind} track from ${peerId} unmuted`);
-          });
-        } else {
-          console.warn(`Received track event without stream for ${peerId}`);
+        // Create a new MediaStream if one doesn't exist for this peer
+        let remoteStream = remoteStreams[peerId];
+        if (!remoteStream) {
+          remoteStream = new MediaStream();
+          console.log(`Creating new MediaStream for ${peerId}`);
         }
+        
+        // Add the track to our remote stream
+        remoteStream.addTrack(event.track);
+        console.log(`Added ${event.track.kind} track to stream for ${peerId}`);
+        
+        // Save remote stream
+        setRemoteStreams(prev => ({
+          ...prev,
+          [peerId]: remoteStream
+        }));
+        
+        // Update connection status
+        setConnectionStatus(prev => ({
+          ...prev,
+          [peerId]: 'connected'
+        }));
+        
+        // Log audio/video tracks
+        const audioTracks = remoteStream.getAudioTracks();
+        const videoTracks = remoteStream.getVideoTracks();
+        
+        console.log(`Remote stream tracks for ${peerId}: audio=${audioTracks.length}, video=${videoTracks.length}`);
+        
+        // Listen for track ended events
+        event.track.onended = () => console.log(`Remote ${event.track.kind} track from ${peerId} ended`);
+        event.track.onmute = () => console.log(`Remote ${event.track.kind} track from ${peerId} muted`);
+        event.track.onunmute = () => console.log(`Remote ${event.track.kind} track from ${peerId} unmuted`);
       };
       
       // Process any queued ICE candidates
