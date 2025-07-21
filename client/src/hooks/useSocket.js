@@ -1,4 +1,4 @@
-// hooks/useSocket.js - Updated socket hook for network connections
+// hooks/useSocket.js - Enhanced socket hook with WebRTC support
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 
@@ -44,7 +44,7 @@ export const useSocket = (serverUrl = null) => {
     const serverURL = getServerUrl();
     console.log('Connecting to server:', serverURL);
 
-    // Socket.io configuration for cross-network communication
+    // Enhanced Socket.io configuration for WebRTC support
     const socketConfig = {
       transports: ['websocket', 'polling'],
       forceNew: true,
@@ -52,12 +52,17 @@ export const useSocket = (serverUrl = null) => {
       reconnectionAttempts: maxReconnectAttempts,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 10000,
-      // Important: Allow cross-origin requests
+      timeout: 20000, // Increased timeout for WebRTC
       withCredentials: false,
-      // Add additional options for better connectivity
       upgrade: true,
-      rememberUpgrade: true
+      rememberUpgrade: true,
+      // Additional options for WebRTC compatibility
+      autoConnect: true,
+      multiplex: true,
+      // Enable binary support for WebRTC data
+      binary: true,
+      // Increase maxHttpBufferSize for WebRTC signaling
+      maxHttpBufferSize: 1e8
     };
 
     // Create socket connection
@@ -71,6 +76,9 @@ export const useSocket = (serverUrl = null) => {
       setIsConnected(true);
       setConnectionError(null);
       setReconnectAttempts(0);
+      
+      // Emit a test event to ensure connection is working
+      newSocket.emit('connection-test', { timestamp: Date.now() });
     });
 
     newSocket.on('disconnect', (reason) => {
@@ -82,6 +90,8 @@ export const useSocket = (serverUrl = null) => {
         setConnectionError('Server disconnected the connection');
       } else if (reason === 'transport close') {
         setConnectionError('Connection lost');
+      } else if (reason === 'transport error') {
+        setConnectionError('Transport error - check network connection');
       } else {
         setConnectionError(`Disconnected: ${reason}`);
       }
@@ -91,14 +101,22 @@ export const useSocket = (serverUrl = null) => {
       console.error('❌ Connection error:', error);
       setIsConnected(false);
       
+      // More detailed error handling
+      let errorMessage = 'Connection failed';
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.type) {
+        errorMessage = `Connection error: ${error.type}`;
+      }
+      
       // Increment reconnect attempts
       setReconnectAttempts(prev => {
         const newAttempts = prev + 1;
         
         if (newAttempts >= maxReconnectAttempts) {
-          setConnectionError(`Failed to connect after ${maxReconnectAttempts} attempts. Please check your network connection and server address.`);
+          setConnectionError(`${errorMessage}. Failed after ${maxReconnectAttempts} attempts. Please check your network and server.`);
         } else {
-          setConnectionError(`Connection failed. Retrying... (${newAttempts}/${maxReconnectAttempts})`);
+          setConnectionError(`${errorMessage}. Retrying... (${newAttempts}/${maxReconnectAttempts})`);
         }
         
         return newAttempts;
@@ -126,6 +144,22 @@ export const useSocket = (serverUrl = null) => {
       setConnectionError(`Server error: ${error.message || error}`);
     });
 
+    // WebRTC-specific event handlers
+    newSocket.on('call-failed', (error) => {
+      console.error('❌ Call failed:', error);
+      setConnectionError(`Call failed: ${error.message || error}`);
+    });
+
+    newSocket.on('peer-connection-failed', (error) => {
+      console.error('❌ Peer connection failed:', error);
+      setConnectionError(`Peer connection failed: ${error.message || error}`);
+    });
+
+    // Connection test response
+    newSocket.on('connection-test-response', (data) => {
+      console.log('📡 Connection test successful:', data);
+    });
+
     // Cleanup function
     return () => {
       console.log('🧹 Cleaning up socket connection');
@@ -139,14 +173,26 @@ export const useSocket = (serverUrl = null) => {
     };
   }, [getServerUrl, maxReconnectAttempts]);
 
-  // Emit function with connection check
-  const emit = useCallback((event, data) => {
+  // Enhanced emit function with connection check and retry logic
+  const emit = useCallback((event, data, callback) => {
     if (socketRef.current && isConnected) {
       console.log(`📤 Emitting ${event}:`, data);
-      socketRef.current.emit(event, data);
+      
+      // If callback provided, use it
+      if (callback) {
+        socketRef.current.emit(event, data, callback);
+      } else {
+        socketRef.current.emit(event, data);
+      }
       return true;
     } else {
       console.warn(`⚠️ Cannot emit ${event}: Socket not connected`);
+      
+      // For critical events like call initialization, show specific error
+      if (event.includes('call') || event.includes('offer') || event.includes('answer')) {
+        setConnectionError('Cannot initialize call: Socket connection failed');
+      }
+      
       return false;
     }
   }, [isConnected]);
@@ -183,6 +229,27 @@ export const useSocket = (serverUrl = null) => {
     return false;
   }, []);
 
+  // Test connection function
+  const testConnection = useCallback(() => {
+    if (socketRef.current && isConnected) {
+      console.log('🧪 Testing connection...');
+      socketRef.current.emit('connection-test', { timestamp: Date.now() });
+      return true;
+    }
+    return false;
+  }, [isConnected]);
+
+  // Get connection status
+  const getConnectionStatus = useCallback(() => {
+    return {
+      isConnected,
+      socketId: socketRef.current?.id,
+      serverUrl: getServerUrl(),
+      error: connectionError,
+      reconnectAttempts
+    };
+  }, [isConnected, connectionError, reconnectAttempts, getServerUrl]);
+
   return {
     socket,
     isConnected,
@@ -191,6 +258,8 @@ export const useSocket = (serverUrl = null) => {
     emit,
     on,
     off,
-    reconnect
+    reconnect,
+    testConnection,
+    getConnectionStatus
   };
 };

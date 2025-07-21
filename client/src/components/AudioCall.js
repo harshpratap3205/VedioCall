@@ -1,11 +1,25 @@
-// import React, { useState, useEffect, useRef } from 'react';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import React, { useState, useEffect, useRef, useCallback } from 'react';
 // import { useParams, useLocation, useNavigate } from 'react-router-dom';
 // import styled from 'styled-components';
-// import { useSocket } from '../hooks/useSocket';
-// import { useMedia } from '../hooks/useMedia';
 // import { usePeerConnection } from '../hooks/usePeerConnection';
-// import Chat from './Chat';
+// import { useSocket } from '../hooks/useSocket';
 
+// // Styled Components
 // const AudioContainer = styled.div`
 //   height: 100vh;
 //   background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -53,6 +67,8 @@
 //   font-size: 3rem;
 //   margin-bottom: 1rem;
 //   position: relative;
+//   color: white;
+//   font-weight: bold;
   
 //   ${props => props.isSpeaking && `
 //     animation: pulse 1.5s infinite;
@@ -137,6 +153,29 @@
 //   border-radius: 12px;
 //   z-index: 100;
 //   backdrop-filter: blur(10px);
+//   display: flex;
+//   flex-direction: column;
+//   gap: 0.5rem;
+// `;
+
+// const CopyButton = styled.button`
+//   background: #007bff;
+//   color: white;
+//   border: none;
+//   padding: 0.5rem 1rem;
+//   border-radius: 6px;
+//   cursor: pointer;
+//   font-size: 0.9rem;
+//   transition: all 0.3s ease;
+  
+//   &:hover {
+//     background: #0056b3;
+//     transform: translateY(-2px);
+//   }
+  
+//   &:active {
+//     transform: translateY(0);
+//   }
 // `;
 
 // const CenterInfo = styled.div`
@@ -161,37 +200,64 @@
 //   opacity: 0.7;
 // `;
 
+// const Toast = styled.div`
+//   position: fixed;
+//   top: 20px;
+//   right: 20px;
+//   background: ${props => props.type === 'error' ? '#dc3545' : '#28a745'};
+//   color: white;
+//   padding: 1rem 1.5rem;
+//   border-radius: 8px;
+//   z-index: 1000;
+//   animation: slideIn 0.3s ease;
+  
+//   @keyframes slideIn {
+//     from { transform: translateX(100%); }
+//     to { transform: translateX(0); }
+//   }
+// `;
+
+// const LoadingSpinner = styled.div`
+//   border: 4px solid rgba(255, 255, 255, 0.3);
+//   border-top: 4px solid white;
+//   border-radius: 50%;
+//   width: 40px;
+//   height: 40px;
+//   animation: spin 1s linear infinite;
+//   margin: 0 auto 1rem;
+  
+//   @keyframes spin {
+//     0% { transform: rotate(0deg); }
+//     100% { transform: rotate(360deg); }
+//   }
+// `;
+
+// // Main AudioCall Component
 // const AudioCall = () => {
 //   const { roomId } = useParams();
 //   const location = useLocation();
 //   const navigate = useNavigate();
   
+//   // State
 //   const [participants, setParticipants] = useState([]);
-//   const [userName] = useState(location.state?.userName || 'Anonymous');
+//   const [userName] = useState(location.state?.userName || `User${Math.floor(Math.random() * 1000)}`);
 //   const [speakingParticipants, setSpeakingParticipants] = useState(new Set());
 //   const [isConnecting, setIsConnecting] = useState(true);
 //   const [connectionError, setConnectionError] = useState(null);
 //   const [toast, setToast] = useState(null);
+//   const [roomJoined, setRoomJoined] = useState(false);
+//   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   
-//   // Audio level detection
-//   const audioAnalysersRef = useRef(new Map());
+//   // Refs
+//   const localStreamRef = useRef(null);
 //   const audioContextRef = useRef(null);
+//   const speakingTimeoutRef = useRef(new Map());
+//   const audioAnalysersRef = useRef(new Map());
   
-//   // Custom hooks
-//   const { socket, isConnected, connectionError: socketError, emit, on, off } = useSocket();
-//   const { 
-//     localStream, 
-//     isAudioEnabled, 
-//     mediaError,
-//     getUserMedia, 
-//     toggleAudio, 
-//     stopMedia
-//   } = useMedia(false); // Audio-only call
-  
-//   const { 
+//   // Hooks
+//   const {
 //     remoteStreams,
 //     connectionStatus,
-//     connectionError: peerError,
 //     createPeerConnection,
 //     createOffer,
 //     handleOffer,
@@ -200,220 +266,52 @@
 //     closePeerConnection,
 //     closeAllPeerConnections
 //   } = usePeerConnection();
+  
+//   const {
+//     socket,
+//     isConnected,
+//     connectionError: socketError,
+//     emit,
+//     on,
+//     off
+//   } = useSocket();
 
 //   // Show toast notification
-//   const showToast = (message, type = 'info') => {
+//   const showToast = useCallback((message, type = 'info') => {
 //     setToast({ message, type });
 //     setTimeout(() => setToast(null), 3000);
+//   }, []);
+
+//   // Copy room code to clipboard
+//   const copyRoomCode = async () => {
+//     try {
+//       await navigator.clipboard.writeText(roomId);
+//       showToast('Room code copied to clipboard!');
+//     } catch (err) {
+//       console.error('Failed to copy room code:', err);
+//       showToast('Failed to copy room code', 'error');
+//     }
 //   };
-  
-//   // Initialize room and media
-//   useEffect(() => {
-//     const initializeRoom = async () => {
-//       try {
-//         setIsConnecting(true);
-//         setConnectionError(null);
-        
-//         console.log("Starting audio call initialization for room:", roomId);
-        
-//         // Get user media first (audio only)
-//         console.log("Requesting audio access...");
-//         await getUserMedia(false, true);
-//         console.log("Audio access granted:", localStream);
-        
-//         // Join room when socket is connected
-//         if (socket && isConnected) {
-//           console.log("Socket connected, joining room:", roomId);
-//           emit('join-room', { roomId, userName, roomType: 'audio' });
-//         } else {
-//           console.error("Socket not connected!");
-//           setConnectionError('Not connected to server. Please check your internet connection and try again.');
-//         }
-//       } catch (error) {
-//         console.error('Error initializing audio room:', error);
-//         setConnectionError(error.message || 'Failed to access microphone');
-//       } finally {
-//         setIsConnecting(false);
-//       }
-//     };
 
-//     if (isConnected) {
-//       console.log("Socket connected, initializing audio room...");
-//       initializeRoom();
-//     } else {
-//       console.log("Waiting for socket connection...");
-//     }
-    
-//     return () => {
-//       if (audioContextRef.current) {
-//         audioContextRef.current.close().catch(console.error);
-//       }
-//     };
-//   }, [socket, isConnected, roomId, userName, getUserMedia, emit, localStream]);
-
-//   // Setup audio analysis when streams change
-//   useEffect(() => {
-//     if (!localStream) return;
-    
-//     // Initialize AudioContext if not already created
-//     if (!audioContextRef.current) {
-//       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-//     }
-    
-//     // Setup audio analyser for local stream
-//     setupAudioAnalyser(localStream, 'self');
-    
-//     // Setup audio analysers for all remote streams
-//     Object.entries(remoteStreams).forEach(([userId, stream]) => {
-//       setupAudioAnalyser(stream, userId);
-//     });
-    
-//     // Start detecting speaking
-//     const intervalId = setInterval(detectSpeaking, 100);
-    
-//     return () => {
-//       clearInterval(intervalId);
-//     };
-//   }, [localStream, remoteStreams]);
-  
-//   // Socket event handlers for WebRTC signaling
-//   useEffect(() => {
-//     if (!socket || !isConnected) return;
-    
-//     console.log("Setting up socket event handlers for WebRTC signaling");
-
-//     // User joined the room
-//     on('user-joined', ({ userId, userName }) => {
-//       console.log(`User joined: ${userName} (${userId})`);
-//       showToast(`${userName} joined the call`);
-      
-//       // Create a peer connection for the new user
-//       if (localStream) {
-//         console.log("Creating peer connection for new user:", userId);
-        
-//         const handleIceCandidate = (candidate) => {
-//           emit('ice-candidate', { candidate, targetUserId: userId });
-//         };
-        
-//         createPeerConnection(userId, localStream, handleIceCandidate)
-//           .then(() => {
-//             // Create and send an offer
-//             return createOffer(userId);
-//           })
-//           .then(offer => {
-//             if (offer) {
-//               console.log("Sending offer to:", userId);
-//               emit('offer', { offer, targetUserId: userId });
-//             }
-//           })
-//           .catch(err => {
-//             console.error("Error creating peer connection:", err);
-//           });
-//       }
-//     });
-
-//     // Handle WebRTC offer
-//     on('offer', async ({ offer, fromUserId, fromUserName }) => {
-//       console.log(`Received offer from: ${fromUserName} (${fromUserId})`);
-      
-//       try {
-//         const handleIceCandidate = (candidate) => {
-//           emit('ice-candidate', { candidate, targetUserId: fromUserId });
-//         };
-        
-//         // Handle the offer and create an answer
-//         const answer = await handleOffer(fromUserId, offer, localStream, handleIceCandidate);
-        
-//         if (answer) {
-//           console.log("Sending answer to:", fromUserId);
-//           emit('answer', { answer, targetUserId: fromUserId });
-//         }
-//       } catch (error) {
-//         console.error("Error handling offer:", error);
-//       }
-//     });
-
-//     // Handle WebRTC answer
-//     on('answer', ({ answer, fromUserId }) => {
-//       console.log(`Received answer from: ${fromUserId}`);
-//       handleAnswer(fromUserId, answer);
-//     });
-
-//     // Handle ICE candidates
-//     on('ice-candidate', ({ candidate, fromUserId }) => {
-//       console.log(`Received ICE candidate from: ${fromUserId}`);
-//       addIceCandidate(fromUserId, candidate);
-//     });
-
-//     // User left the room
-//     on('user-left', ({ userId, userName }) => {
-//       console.log(`User left: ${userName} (${userId})`);
-//       showToast(`${userName} left the call`);
-      
-//       // Close the peer connection
-//       closePeerConnection(userId);
-      
-//       // Remove from participants list
-//       setParticipants(prev => prev.filter(p => p.id !== userId));
-      
-//       // Remove from speaking participants
-//       setSpeakingParticipants(prev => {
-//         const updated = new Set(prev);
-//         updated.delete(userId);
-//         return updated;
+//   // Get user media
+//   const getUserMedia = useCallback(async () => {
+//     try {
+//       const stream = await navigator.mediaDevices.getUserMedia({
+//         audio: true,
+//         video: false
 //       });
       
-//       // Clean up audio analyser
-//       if (audioAnalysersRef.current.has(userId)) {
-//         const { source } = audioAnalysersRef.current.get(userId);
-//         source?.disconnect();
-//         audioAnalysersRef.current.delete(userId);
-//       }
-//     });
-
-//     // Joined room successfully
-//     on('joined-room', ({ users }) => {
-//       console.log('Joined room successfully, existing users:', users);
-//       setParticipants(users);
-//       setIsConnecting(false);
-//     });
-
-//     return () => {
-//       off('user-joined');
-//       off('offer');
-//       off('answer');
-//       off('ice-candidate');
-//       off('user-left');
-//       off('joined-room');
-//     };
-//   }, [
-//     socket, 
-//     isConnected, 
-//     localStream, 
-//     emit, 
-//     on, 
-//     off, 
-//     createPeerConnection, 
-//     createOffer, 
-//     handleOffer, 
-//     handleAnswer, 
-//     addIceCandidate, 
-//     closePeerConnection
-//   ]);
-  
-//   // Effect to handle errors from hooks
-//   useEffect(() => {
-//     if (socketError) {
-//       setConnectionError(`Server connection error: ${socketError}`);
-//     } else if (mediaError) {
-//       setConnectionError(`Media error: ${mediaError}`);
-//     } else if (peerError) {
-//       setConnectionError(`Connection error: ${peerError}`);
+//       localStreamRef.current = stream;
+//       setupAudioAnalyser(stream, 'self');
+//       return stream;
+//     } catch (error) {
+//       console.error('Error getting user media:', error);
+//       throw new Error('Failed to access microphone. Please check permissions.');
 //     }
-//   }, [socketError, mediaError, peerError]);
+//   }, []);
 
-//   // Setup audio analyser for a stream
-//   const setupAudioAnalyser = (stream, userId) => {
+//   // Setup audio analyser
+//   const setupAudioAnalyser = useCallback((stream, userId) => {
 //     if (!audioContextRef.current || !stream) return;
     
 //     try {
@@ -423,7 +321,6 @@
 //         source?.disconnect();
 //       }
       
-//       // Create audio source from stream
 //       const audioTracks = stream.getAudioTracks();
 //       if (audioTracks.length === 0) return;
       
@@ -435,245 +332,391 @@
 //       source.connect(analyser);
       
 //       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      
 //       audioAnalysersRef.current.set(userId, { source, analyser, dataArray });
 //     } catch (error) {
 //       console.error('Error setting up audio analyser:', error);
 //     }
-//   };
-  
-//   // Detect who is speaking
-//   const detectSpeaking = () => {
+//   }, []);
+
+//   // Detect speaking
+//   const detectSpeaking = useCallback(() => {
 //     if (!audioAnalysersRef.current) return;
     
 //     audioAnalysersRef.current.forEach(({ analyser, dataArray }, userId) => {
-//       analyser.getByteFrequencyData(dataArray);
-      
-//       // Calculate average volume
-//       const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-//       const threshold = 15;  // Adjust this threshold as needed
-      
-//       if (average > threshold) {
-//         // User is speaking
-//         setSpeakingParticipants(prev => {
-//           const updated = new Set(prev);
-//           updated.add(userId);
-//           return updated;
-//         });
+//       if (analyser && dataArray) {
+//         analyser.getByteFrequencyData(dataArray);
         
-//         // Reset after a short timeout if no more audio detected
-//         setTimeout(() => {
+//         const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+//         const threshold = 15;
+        
+//         if (average > threshold) {
 //           setSpeakingParticipants(prev => {
 //             const updated = new Set(prev);
-//             updated.delete(userId);
+//             updated.add(userId);
 //             return updated;
 //           });
-//         }, 500);
+          
+//           if (speakingTimeoutRef.current.has(userId)) {
+//             clearTimeout(speakingTimeoutRef.current.get(userId));
+//           }
+          
+//           const timeoutId = setTimeout(() => {
+//             setSpeakingParticipants(prev => {
+//               const updated = new Set(prev);
+//               updated.delete(userId);
+//               return updated;
+//             });
+//             speakingTimeoutRef.current.delete(userId);
+//           }, 500);
+          
+//           speakingTimeoutRef.current.set(userId, timeoutId);
+//         }
 //       }
 //     });
-//   };
+//   }, []);
 
-//   const handleToggleAudio = () => {
-//     toggleAudio();
-//     emit('toggle-audio', { roomId, isAudioEnabled: !isAudioEnabled });
-//   };
+//   // Toggle audio
+//   const toggleAudio = useCallback(() => {
+//     if (localStreamRef.current) {
+//       const audioTracks = localStreamRef.current.getAudioTracks();
+//       audioTracks.forEach(track => {
+//         track.enabled = !track.enabled;
+//       });
+//       setIsAudioEnabled(!isAudioEnabled);
+//     }
+//   }, [isAudioEnabled]);
 
-//   const hangUp = () => {
-//     // Cleanup
-//     stopMedia();
+//   // Handle hang up
+//   const handleHangUp = useCallback(() => {
+//     // Stop local stream
+//     if (localStreamRef.current) {
+//       localStreamRef.current.getTracks().forEach(track => track.stop());
+//       localStreamRef.current = null;
+//     }
+    
+//     // Close all peer connections
 //     closeAllPeerConnections();
     
-//     // Clean up audio analysers
-//     audioAnalysersRef.current.forEach(({ source }) => source?.disconnect());
-//     audioAnalysersRef.current.clear();
-    
+//     // Close audio context
 //     if (audioContextRef.current) {
-//       audioContextRef.current.close().catch(console.error);
+//       audioContextRef.current.close();
+//       audioContextRef.current = null;
 //     }
     
-//     emit('leave-room');
-//     navigate('/');
-//   };
-
-//   const copyRoomId = () => {
-//     navigator.clipboard.writeText(roomId);
-//     showToast('Room ID copied to clipboard!', 'success');
-//   };
-
-//   // Show loading or error states
-//   if (isConnecting) {
-//     return (
-//       <AudioContainer>
-//         <div style={{ 
-//           display: 'flex', 
-//           justifyContent: 'center', 
-//           alignItems: 'center', 
-//           height: '100vh',
-//           flexDirection: 'column',
-//           color: 'white'
-//         }}>
-//           <div className="loading-spinner"></div>
-//           <p style={{ marginTop: '1rem' }}>Connecting to audio room...</p>
-//         </div>
-//       </AudioContainer>
-//     );
-//   }
-
-//   if (connectionError) {
-//     return (
-//       <AudioContainer>
-//         <div style={{ 
-//           display: 'flex', 
-//           justifyContent: 'center', 
-//           alignItems: 'center', 
-//           height: '100vh',
-//           flexDirection: 'column',
-//           color: 'white',
-//           textAlign: 'center',
-//           padding: '2rem'
-//         }}>
-//           <h2>Connection Error</h2>
-//           <p>{connectionError}</p>
-//           <button 
-//             onClick={() => navigate('/')}
-//             style={{ marginTop: '1rem', padding: '0.5rem 1rem' }}
-//           >
-//             Go Home
-//           </button>
-//         </div>
-//       </AudioContainer>
-//     );
-//   }
-
-//   const getParticipantEmoji = (participant) => {
-//     if (participant.isLocal) {
-//       return speakingParticipants.has(participant.id) ? '🎤' : '👤';
+//     // Leave room
+//     if (socket) {
+//       emit('leave-room', { roomId, userId: socket.id });
 //     }
-//     return speakingParticipants.has(participant.id) ? '🔊' : '👤';
+    
+//     // Clean up
+//     speakingTimeoutRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+//     speakingTimeoutRef.current.clear();
+    
+//     navigate('/');
+//   }, [roomId, navigate, closeAllPeerConnections, socket, emit]);
+
+//   // Handle socket events
+//   useEffect(() => {
+//     if (!socket) return;
+
+//     const handleRoomJoined = (data) => {
+//       console.log('Room joined successfully:', data);
+//       setParticipants(data.users || []);
+//       setRoomJoined(true);
+//       setIsConnecting(false);
+//       showToast('Successfully joined the call');
+//     };
+
+//     const handleUserJoined = (data) => {
+//       const { userId, userName: newUserName } = data;
+//       console.log(`User joined: ${newUserName} (${userId})`);
+      
+//       setParticipants(prev => [...prev, { id: userId, name: newUserName }]);
+//       showToast(`${newUserName} joined the call`);
+      
+//       // Create peer connection and send offer
+//       if (localStreamRef.current) {
+//         createPeerConnection(userId, localStreamRef.current, (candidate) => {
+//           emit('ice-candidate', { candidate, targetUserId: userId });
+//         });
+        
+//         createOffer(userId).then(offer => {
+//           if (offer) {
+//             emit('offer', { offer, targetUserId: userId });
+//           }
+//         });
+//       }
+//     };
+
+//     const handleUserLeft = (data) => {
+//       const { userId, userName: leftUserName } = data;
+//       console.log(`User left: ${leftUserName} (${userId})`);
+      
+//       setParticipants(prev => prev.filter(p => p.id !== userId));
+//       showToast(`${leftUserName} left the call`);
+      
+//       // Clean up peer connection
+//       closePeerConnection(userId);
+      
+//       // Clean up audio analyser
+//       if (audioAnalysersRef.current.has(userId)) {
+//         const { source } = audioAnalysersRef.current.get(userId);
+//         source?.disconnect();
+//         audioAnalysersRef.current.delete(userId);
+//       }
+      
+//       // Remove from speaking participants
+//       setSpeakingParticipants(prev => {
+//         const updated = new Set(prev);
+//         updated.delete(userId);
+//         return updated;
+//       });
+//     };
+
+//     const handleOfferReceived = async (data) => {
+//       const { offer, fromUserId, userName: offerUserName } = data;
+//       console.log(`Received offer from: ${offerUserName} (${fromUserId})`);
+      
+//       if (!localStreamRef.current) {
+//         console.error('No local stream available');
+//         return;
+//       }
+      
+//       // Create peer connection if it doesn't exist
+//       if (!connectionStatus[fromUserId]) {
+//         createPeerConnection(fromUserId, localStreamRef.current, (candidate) => {
+//           emit('ice-candidate', { candidate, targetUserId: fromUserId });
+//         });
+//       }
+      
+//       const answer = await handleOffer(fromUserId, offer);
+//       if (answer) {
+//         emit('answer', { answer, targetUserId: fromUserId });
+//       }
+//     };
+
+//     const handleAnswerReceived = async (data) => {
+//       const { answer, fromUserId } = data;
+//       console.log(`Received answer from: ${fromUserId}`);
+//       await handleAnswer(fromUserId, answer);
+//     };
+
+//     const handleIceCandidateReceived = async (data) => {
+//       const { candidate, fromUserId } = data;
+//       console.log(`Received ICE candidate from: ${fromUserId}`);
+//       await addIceCandidate(fromUserId, candidate);
+//     };
+
+//     const handleError = (error) => {
+//       console.error('Socket error:', error);
+//       setConnectionError(error.message || 'Connection error');
+//       showToast(error.message || 'Connection error', 'error');
+//     };
+
+//     // Setup event listeners
+//     on('room-joined', handleRoomJoined);
+//     on('user-joined', handleUserJoined);
+//     on('user-left', handleUserLeft);
+//     on('offer', handleOfferReceived);
+//     on('answer', handleAnswerReceived);
+//     on('ice-candidate', handleIceCandidateReceived);
+//     on('error', handleError);
+
+//     return () => {
+//       // Clean up listeners
+//       off('room-joined', handleRoomJoined);
+//       off('user-joined', handleUserJoined);
+//       off('user-left', handleUserLeft);
+//       off('offer', handleOfferReceived);
+//       off('answer', handleAnswerReceived);
+//       off('ice-candidate', handleIceCandidateReceived);
+//       off('error', handleError);
+//     };
+//   }, [
+//     socket, 
+//     emit, 
+//     on, 
+//     off, 
+//     showToast, 
+//     createPeerConnection, 
+//     createOffer, 
+//     handleOffer, 
+//     handleAnswer, 
+//     addIceCandidate,
+//     closePeerConnection,
+//     connectionStatus
+//   ]);
+
+//   // Initialize call
+//   useEffect(() => {
+//     let mounted = true;
+    
+//     const initializeCall = async () => {
+//       try {
+//         setIsConnecting(true);
+//         setConnectionError(null);
+        
+//         // Initialize audio context
+//         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        
+//         // Get user media
+//         await getUserMedia();
+        
+//         if (!mounted) return;
+        
+//         // Join room
+//         emit('join-room', {
+//           roomId,
+//           userName,
+//           roomType: 'audio'
+//         });
+        
+//         // Start speaking detection
+//         const speakingInterval = setInterval(detectSpeaking, 100);
+        
+//         return () => {
+//           clearInterval(speakingInterval);
+//         };
+        
+//       } catch (error) {
+//         console.error('Error initializing call:', error);
+//         if (mounted) {
+//           setConnectionError(`Failed to initialize call: ${error.message}`);
+//           setIsConnecting(false);
+//         }
+//       }
+//     };
+    
+//     if (socket && isConnected) {
+//       initializeCall();
+//     }
+    
+//     return () => {
+//       mounted = false;
+//     };
+//   }, [roomId, userName, getUserMedia, detectSpeaking, socket, isConnected, emit]);
+
+//   // Handle socket connection errors
+//   useEffect(() => {
+//     if (socketError) {
+//       setConnectionError(socketError);
+//       showToast(socketError, 'error');
+//     }
+//   }, [socketError, showToast]);
+
+//   // Setup remote streams
+//   useEffect(() => {
+//     Object.entries(remoteStreams).forEach(([userId, stream]) => {
+//       if (stream && !audioAnalysersRef.current.has(userId)) {
+//         setupAudioAnalyser(stream, userId);
+//       }
+//     });
+//   }, [remoteStreams, setupAudioAnalyser]);
+
+//   // Render participants
+//   const renderParticipants = () => {
+//     const allParticipants = [
+//       { id: 'self', name: `${userName} (You)` },
+//       ...participants
+//     ];
+
+//     return allParticipants.map(participant => {
+//       const isSpeaking = speakingParticipants.has(participant.id);
+//       const status = connectionStatus[participant.id] || 'disconnected';
+      
+//       let statusText = '🔇 Quiet';
+//       if (isSpeaking) statusText = '🎤 Speaking';
+//       if (status === 'connecting') statusText = '🔌 Connecting...';
+//       if (status === 'failed') statusText = '❌ Connection failed';
+      
+//       return (
+//         <ParticipantCard key={participant.id}>
+//           <Avatar isSpeaking={isSpeaking}>
+//             {participant.name.charAt(0).toUpperCase()}
+//           </Avatar>
+//           <ParticipantName>{participant.name}</ParticipantName>
+//           <ParticipantStatus>
+//             {statusText}
+//           </ParticipantStatus>
+//         </ParticipantCard>
+//       );
+//     });
 //   };
 
 //   return (
 //     <AudioContainer>
+//       {/* Toast notifications */}
+//       {toast && (
+//         <Toast type={toast.type}>
+//           {toast.message}
+//         </Toast>
+//       )}
+      
+//       {/* Room info with copy button */}
 //       <RoomInfo>
-//         <div style={{ marginBottom: '0.5rem' }}>
-//           <strong>Audio Room: {roomId}</strong>
-//           <button 
-//             onClick={copyRoomId}
-//             style={{ 
-//               marginLeft: '10px', 
-//               background: 'transparent', 
-//               border: 'none', 
-//               color: 'white',
-//               cursor: 'pointer',
-//               fontSize: '1.2rem'
-//             }}
-//           >
-//             📋
-//           </button>
-//         </div>
-//         <div>👥 {participants.length} participant{participants.length !== 1 ? 's' : ''}</div>
+//         <div>Room: {roomId}</div>
+//         <div>Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
+//         <div>Participants: {participants.length + 1}</div>
+//         <CopyButton onClick={copyRoomCode}>
+//           📋 Copy Room Code
+//         </CopyButton>
 //       </RoomInfo>
-
-//       {participants.length === 1 && (
+      
+//       {/* Center loading/error info */}
+//       {isConnecting && (
 //         <CenterInfo>
-//           <RoomTitle>🎵 Audio Room</RoomTitle>
-//           <RoomSubtitle>Waiting for others to join...</RoomSubtitle>
+//           <LoadingSpinner />
+//           <RoomTitle>Connecting...</RoomTitle>
+//           <RoomSubtitle>Please wait while we connect you to the call</RoomSubtitle>
 //         </CenterInfo>
 //       )}
-
-//       <ParticipantsGrid>
-//         {participants.map((participant) => (
-//           <ParticipantCard key={participant.id}>
-//             <Avatar isSpeaking={speakingParticipants.has(participant.id)}>
-//               {getParticipantEmoji(participant)}
-//             </Avatar>
-//             <ParticipantName>
-//               {participant.name} {participant.isLocal && '(You)'}
-//             </ParticipantName>
-//             <ParticipantStatus>
-//               {participant.isAudioEnabled ? (
-//                 <>
-//                   🎤 
-//                   {speakingParticipants.has(participant.id) ? 'Speaking' : 'Connected'}
-//                 </>
-//               ) : (
-//                 <>🔇 Muted</>
-//               )}
-//             </ParticipantStatus>
-//           </ParticipantCard>
-//         ))}
-//       </ParticipantsGrid>
-
+      
+//       {connectionError && (
+//         <CenterInfo>
+//           <RoomTitle>Connection Error</RoomTitle>
+//           <RoomSubtitle>{connectionError}</RoomSubtitle>
+//         </CenterInfo>
+//       )}
+      
+//       {/* Participants grid */}
+//       {!isConnecting && !connectionError && (
+//         <ParticipantsGrid>
+//           {renderParticipants()}
+//         </ParticipantsGrid>
+//       )}
+      
+//       {/* Controls */}
 //       <Controls>
 //         <ControlButton 
 //           className="audio" 
 //           active={isAudioEnabled}
-//           onClick={handleToggleAudio}
+//           onClick={toggleAudio}
 //           title={isAudioEnabled ? 'Mute' : 'Unmute'}
 //         >
 //           {isAudioEnabled ? '🎤' : '🔇'}
 //         </ControlButton>
-
+        
 //         <ControlButton 
-//           className="settings" 
+//           className="hang-up"
+//           onClick={handleHangUp}
+//           title="End call"
+//         >
+//           📞
+//         </ControlButton>
+        
+//         <ControlButton 
+//           className="settings"
+//           onClick={() => showToast('Settings not implemented yet')}
 //           title="Settings"
 //         >
 //           ⚙️
 //         </ControlButton>
-
-//         <ControlButton 
-//           className="hang-up" 
-//           onClick={hangUp}
-//           title="Leave call"
-//         >
-//           📞
-//         </ControlButton>
 //       </Controls>
-
-//       {/* Chat Component */}
-//       {socket && (
-//         <Chat 
-//           socket={socket} 
-//           roomId={roomId}
-//           userName={userName}
-//         />
-//       )}
-      
-//       {/* Toast notifications */}
-//       {toast && (
-//         <div 
-//           className="toast"
-//           style={{
-//             background: toast.type === 'error' ? '#dc3545' : 
-//                        toast.type === 'success' ? '#28a745' : '#007bff'
-//           }}
-//         >
-//           {toast.message}
-//         </div>
-//       )}
-
-//       {/* Audio elements for remote streams (hidden) */}
-//       {Array.from(remoteStreams).map(([userId, stream]) => (
-//         <audio 
-//           key={userId} 
-//           autoPlay 
-//           ref={el => {
-//             if (el) {
-//               el.srcObject = stream;
-//             }
-//           }}
-//         />
-//       ))}
 //     </AudioContainer>
 //   );
 // };
 
-// export default AudioCall; 
-
-
-
-
-
+// export default AudioCall;
 
 
 
@@ -681,11 +724,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { useSocket } from '../hooks/useSocket';
-import { useMedia } from '../hooks/useMedia';
 import { usePeerConnection } from '../hooks/usePeerConnection';
-import Chat from './Chat';
+import { useSocket } from '../hooks/useSocket';
 
+// Styled Components
 const AudioContainer = styled.div`
   height: 100vh;
   background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -733,6 +775,8 @@ const Avatar = styled.div`
   font-size: 3rem;
   margin-bottom: 1rem;
   position: relative;
+  color: white;
+  font-weight: bold;
   
   ${props => props.isSpeaking && `
     animation: pulse 1.5s infinite;
@@ -817,6 +861,29 @@ const RoomInfo = styled.div`
   border-radius: 12px;
   z-index: 100;
   backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const CopyButton = styled.button`
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    background: #0056b3;
+    transform: translateY(-2px);
+  }
+  
+  &:active {
+    transform: translateY(0);
+  }
 `;
 
 const CenterInfo = styled.div`
@@ -873,11 +940,18 @@ const LoadingSpinner = styled.div`
   }
 `;
 
+// Hidden audio elements for remote streams
+const RemoteAudio = styled.audio`
+  display: none;
+`;
+
+// Main AudioCall Component
 const AudioCall = () => {
   const { roomId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   
+  // State
   const [participants, setParticipants] = useState([]);
   const [userName] = useState(location.state?.userName || `User${Math.floor(Math.random() * 1000)}`);
   const [speakingParticipants, setSpeakingParticipants] = useState(new Set());
@@ -885,27 +959,20 @@ const AudioCall = () => {
   const [connectionError, setConnectionError] = useState(null);
   const [toast, setToast] = useState(null);
   const [roomJoined, setRoomJoined] = useState(false);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [remoteAudioElements, setRemoteAudioElements] = useState(new Map());
   
-  // Audio level detection
-  const audioAnalysersRef = useRef(new Map());
+  // Refs
+  const localStreamRef = useRef(null);
   const audioContextRef = useRef(null);
   const speakingTimeoutRef = useRef(new Map());
+  const audioAnalysersRef = useRef(new Map());
+  const speakingIntervalRef = useRef(null);
   
-  // Custom hooks
-  const { socket, isConnected, connectionError: socketError, emit, on, off } = useSocket();
-  const { 
-    localStream, 
-    isAudioEnabled, 
-    mediaError,
-    getUserMedia, 
-    toggleAudio, 
-    stopMedia
-  } = useMedia();
-  
-  const { 
+  // Hooks
+  const {
     remoteStreams,
     connectionStatus,
-    connectionError: peerError,
     createPeerConnection,
     createOffer,
     handleOffer,
@@ -914,6 +981,15 @@ const AudioCall = () => {
     closePeerConnection,
     closeAllPeerConnections
   } = usePeerConnection();
+  
+  const {
+    socket,
+    isConnected,
+    connectionError: socketError,
+    emit,
+    on,
+    off
+  } = useSocket();
 
   // Show toast notification
   const showToast = useCallback((message, type = 'info') => {
@@ -921,283 +997,72 @@ const AudioCall = () => {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Handle hang up
-  const handleHangUp = useCallback(() => {
-    console.log('Hanging up call...');
-    
-    // Stop media streams
-    stopMedia();
-    
-    // Close all peer connections
-    closeAllPeerConnections();
-    
-    // Leave the room
-    if (socket && isConnected) {
-      emit('leave-room', { roomId });
+  // Copy room code to clipboard
+  const copyRoomCode = async () => {
+    try {
+      await navigator.clipboard.writeText(roomId);
+      showToast('Room code copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy room code:', err);
+      showToast('Failed to copy room code', 'error');
     }
-    
-    // Clean up audio context
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(console.error);
-    }
-    
-    // Navigate back
-    navigate('/');
-  }, [socket, isConnected, roomId, emit, navigate, stopMedia, closeAllPeerConnections]);
-  
-  // Initialize media and join room
-  useEffect(() => {
-    let mounted = true;
-    
-    const initializeCall = async () => {
-      try {
-        console.log('Initializing audio call...');
-        setIsConnecting(true);
-        setConnectionError(null);
-        
-        // Wait for socket connection
-        if (!isConnected) {
-          console.log('Waiting for socket connection...');
-          return;
-        }
-        
-        // Get user media (audio only)
-        console.log('Requesting audio access...');
-        const stream = await getUserMedia(false, true); // video=false, audio=true
-        
-        if (!mounted) return;
-        
-        console.log('Audio access granted, stream:', stream);
-        
-        // Join room
-        console.log('Joining room:', roomId);
-        emit('join-room', { 
-          roomId, 
-          userName, 
-          roomType: 'audio'
-        });
-        
-      } catch (error) {
-        console.error('Error initializing audio call:', error);
-        if (mounted) {
-          setConnectionError(`Failed to initialize audio call: ${error.message}`);
-          setIsConnecting(false);
-        }
-      }
-    };
-    
-    if (isConnected && !roomJoined) {
-      initializeCall();
-    }
-    
-    return () => {
-      mounted = false;
-    };
-  }, [isConnected, roomId, userName, getUserMedia, emit, roomJoined]);
+  };
 
-  // Setup audio analysis when streams change
-  useEffect(() => {
-    if (!localStream) return;
-    
-    console.log('Setting up audio analysis...');
-    
-    // Initialize AudioContext if not already created
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    
-    // Setup audio analyser for local stream
-    setupAudioAnalyser(localStream, 'self');
-    
-    // Setup audio analysers for all remote streams
-    Object.entries(remoteStreams).forEach(([userId, stream]) => {
-      setupAudioAnalyser(stream, userId);
-    });
-    
-    // Start detecting speaking
-    const intervalId = setInterval(detectSpeaking, 100);
-    
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [localStream, remoteStreams]);
-  
-  // Socket event handlers
-  useEffect(() => {
-    if (!socket || !isConnected) return;
-    
-    console.log('Setting up socket event handlers...');
-
-    // Room joined successfully
-    const handleJoinedRoom = ({ users, roomId: joinedRoomId }) => {
-      console.log('Successfully joined room:', joinedRoomId, 'Users:', users);
-      setParticipants(users);
-      setRoomJoined(true);
-      setIsConnecting(false);
-      showToast('Successfully joined the call');
-    };
-
-    // User joined the room
-    const handleUserJoined = async ({ userId, userName: newUserName }) => {
-      console.log(`User joined: ${newUserName} (${userId})`);
-      showToast(`${newUserName} joined the call`);
-      
-      // Add to participants
-      setParticipants(prev => [...prev, { id: userId, name: newUserName }]);
-      
-      // Create peer connection and send offer if we have local stream
-      if (localStream) {
-        try {
-          console.log('Creating peer connection for new user:', userId);
-          
-          const handleIceCandidate = (candidate) => {
-            console.log('Sending ICE candidate to:', userId);
-            emit('ice-candidate', { candidate, targetUserId: userId });
-          };
-          
-          await createPeerConnection(userId, localStream, handleIceCandidate);
-          
-          // Create and send offer
-          const offer = await createOffer(userId);
-          if (offer) {
-            console.log('Sending offer to:', userId);
-            emit('offer', { offer, targetUserId: userId });
-          }
-        } catch (error) {
-          console.error('Error creating peer connection:', error);
-        }
-      }
-    };
-
-    // Handle WebRTC offer
-    const handleOfferReceived = async ({ offer, fromUserId, fromUserName }) => {
-      console.log(`Received offer from: ${fromUserName} (${fromUserId})`);
-      
-      if (!localStream) {
-        console.error('No local stream available to handle offer');
-        return;
-      }
-      
-      try {
-        const handleIceCandidate = (candidate) => {
-          console.log('Sending ICE candidate to:', fromUserId);
-          emit('ice-candidate', { candidate, targetUserId: fromUserId });
-        };
-        
-        // Handle the offer and create an answer
-        const answer = await handleOffer(fromUserId, offer, localStream, handleIceCandidate);
-        
-        if (answer) {
-          console.log('Sending answer to:', fromUserId);
-          emit('answer', { answer, targetUserId: fromUserId });
-        }
-      } catch (error) {
-        console.error('Error handling offer:', error);
-      }
-    };
-
-    // Handle WebRTC answer
-    const handleAnswerReceived = ({ answer, fromUserId }) => {
-      console.log(`Received answer from: ${fromUserId}`);
-      handleAnswer(fromUserId, answer);
-    };
-
-    // Handle ICE candidates
-    const handleIceCandidateReceived = ({ candidate, fromUserId }) => {
-      console.log(`Received ICE candidate from: ${fromUserId}`);
-      addIceCandidate(fromUserId, candidate);
-    };
-
-    // User left the room
-    const handleUserLeft = ({ userId, userName: leftUserName }) => {
-      console.log(`User left: ${leftUserName} (${userId})`);
-      showToast(`${leftUserName} left the call`);
-      
-      // Close the peer connection
-      closePeerConnection(userId);
-      
-      // Remove from participants list
-      setParticipants(prev => prev.filter(p => p.id !== userId));
-      
-      // Remove from speaking participants
-      setSpeakingParticipants(prev => {
-        const updated = new Set(prev);
-        updated.delete(userId);
-        return updated;
+  // Get user media with retry mechanism
+  const getUserMedia = useCallback(async () => {
+    try {
+      // First try to get user media
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 44100
+        },
+        video: false
       });
       
-      // Clean up audio analyser
-      if (audioAnalysersRef.current.has(userId)) {
-        const { source } = audioAnalysersRef.current.get(userId);
-        source?.disconnect();
-        audioAnalysersRef.current.delete(userId);
+      console.log('Got user media stream:', stream);
+      localStreamRef.current = stream;
+      
+      // Setup audio analyser for local stream
+      setTimeout(() => {
+        setupAudioAnalyser(stream, 'self');
+      }, 100);
+      
+      return stream;
+    } catch (error) {
+      console.error('Error getting user media:', error);
+      
+      // Provide more specific error messages
+      let errorMessage = 'Failed to access microphone';
+      if (error.name === 'NotAllowedError') {
+        errorMessage = 'Microphone access denied. Please allow microphone access and refresh the page.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = 'No microphone found. Please connect a microphone and try again.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = 'Microphone is being used by another application. Please close other applications and try again.';
       }
       
-      // Clear speaking timeout
-      if (speakingTimeoutRef.current.has(userId)) {
-        clearTimeout(speakingTimeoutRef.current.get(userId));
-        speakingTimeoutRef.current.delete(userId);
-      }
-    };
-
-    // Handle connection errors
-    const handleError = ({ message }) => {
-      console.error('Socket error:', message);
-      setConnectionError(message);
-      showToast(message, 'error');
-    };
-
-    // Register event handlers
-    on('joined-room', handleJoinedRoom);
-    on('user-joined', handleUserJoined);
-    on('offer', handleOfferReceived);
-    on('answer', handleAnswerReceived);
-    on('ice-candidate', handleIceCandidateReceived);
-    on('user-left', handleUserLeft);
-    on('error', handleError);
-
-    return () => {
-      off('joined-room', handleJoinedRoom);
-      off('user-joined', handleUserJoined);
-      off('offer', handleOfferReceived);
-      off('answer', handleAnswerReceived);
-      off('ice-candidate', handleIceCandidateReceived);
-      off('user-left', handleUserLeft);
-      off('error', handleError);
-    };
-  }, [
-    socket, 
-    isConnected, 
-    localStream, 
-    emit, 
-    on, 
-    off, 
-    createPeerConnection, 
-    createOffer, 
-    handleOffer, 
-    handleAnswer, 
-    addIceCandidate, 
-    closePeerConnection,
-    showToast
-  ]);
-  
-  // Handle errors from hooks
-  useEffect(() => {
-    if (socketError) {
-      setConnectionError(`Server connection error: ${socketError}`);
-      showToast(`Connection error: ${socketError}`, 'error');
-    } else if (mediaError) {
-      setConnectionError(`Media error: ${mediaError}`);
-      showToast(`Media error: ${mediaError}`, 'error');
-    } else if (peerError) {
-      setConnectionError(`Peer connection error: ${peerError}`);
-      showToast(`Connection error: ${peerError}`, 'error');
+      throw new Error(errorMessage);
     }
-  }, [socketError, mediaError, peerError, showToast]);
+  }, []);
 
-  // Setup audio analyser for a stream
-  const setupAudioAnalyser = (stream, userId) => {
-    if (!audioContextRef.current || !stream) return;
+  // Setup audio analyser with improved error handling
+  const setupAudioAnalyser = useCallback((stream, userId) => {
+    if (!audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (error) {
+        console.error('Failed to create audio context:', error);
+        return;
+      }
+    }
+    
+    if (!stream) {
+      console.warn('No stream provided for audio analyser setup');
+      return;
+    }
     
     try {
       // Clean up existing analyser
@@ -1206,41 +1071,51 @@ const AudioCall = () => {
         source?.disconnect();
       }
       
-      // Create audio source from stream
       const audioTracks = stream.getAudioTracks();
-      if (audioTracks.length === 0) return;
+      if (audioTracks.length === 0) {
+        console.warn('No audio tracks found in stream');
+        return;
+      }
+      
+      // Resume audio context if suspended
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
       
       const source = audioContextRef.current.createMediaStreamSource(stream);
       const analyser = audioContextRef.current.createAnalyser();
       
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.3;
+      analyser.minDecibels = -90;
+      analyser.maxDecibels = -10;
+      
       source.connect(analyser);
       
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      
       audioAnalysersRef.current.set(userId, { source, analyser, dataArray });
       
-      console.log(`Audio analyser set up for user: ${userId}`);
+      console.log(`Audio analyser setup for user: ${userId}`);
     } catch (error) {
       console.error('Error setting up audio analyser:', error);
     }
-  };
-  
-  // Detect who is speaking
-  const detectSpeaking = () => {
-    if (!audioAnalysersRef.current) return;
+  }, []);
+
+  // Improved speaking detection
+  const detectSpeaking = useCallback(() => {
+    if (!audioAnalysersRef.current.size) return;
     
     audioAnalysersRef.current.forEach(({ analyser, dataArray }, userId) => {
-      if (analyser && dataArray) {
+      if (!analyser || !dataArray) return;
+      
+      try {
         analyser.getByteFrequencyData(dataArray);
         
-        // Calculate average volume
-        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-        const threshold = 15; // Adjust this threshold as needed
+        // Calculate RMS for better voice detection
+        const rms = Math.sqrt(dataArray.reduce((sum, value) => sum + value * value, 0) / dataArray.length);
+        const threshold = 25; // Adjusted threshold
         
-        if (average > threshold) {
-          // User is speaking
+        if (rms > threshold) {
           setSpeakingParticipants(prev => {
             const updated = new Set(prev);
             updated.add(userId);
@@ -1252,7 +1127,7 @@ const AudioCall = () => {
             clearTimeout(speakingTimeoutRef.current.get(userId));
           }
           
-          // Set timeout to stop speaking indication
+          // Set new timeout
           const timeoutId = setTimeout(() => {
             setSpeakingParticipants(prev => {
               const updated = new Set(prev);
@@ -1260,31 +1135,352 @@ const AudioCall = () => {
               return updated;
             });
             speakingTimeoutRef.current.delete(userId);
-          }, 500);
+          }, 1000);
           
           speakingTimeoutRef.current.set(userId, timeoutId);
         }
+      } catch (error) {
+        console.error('Error in speaking detection:', error);
       }
     });
-  };
+  }, []);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      // Clean up timeouts
-      speakingTimeoutRef.current.forEach(timeoutId => clearTimeout(timeoutId));
-      speakingTimeoutRef.current.clear();
+  // Toggle audio
+  const toggleAudio = useCallback(() => {
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsAudioEnabled(!isAudioEnabled);
       
-      // Clean up audio context
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(console.error);
+      if (isAudioEnabled) {
+        showToast('Microphone muted');
+      } else {
+        showToast('Microphone unmuted');
+      }
+    }
+  }, [isAudioEnabled, showToast]);
+
+  // Handle hang up
+  const handleHangUp = useCallback(() => {
+    console.log('Hanging up call...');
+    
+    // Stop local stream
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log('Stopped local track:', track.kind);
+      });
+      localStreamRef.current = null;
+    }
+    
+    // Close all peer connections
+    closeAllPeerConnections();
+    
+    // Close audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
+    // Clear speaking detection interval
+    if (speakingIntervalRef.current) {
+      clearInterval(speakingIntervalRef.current);
+      speakingIntervalRef.current = null;
+    }
+    
+    // Leave room
+    if (socket && isConnected) {
+      emit('leave-room', { roomId, userId: socket.id });
+    }
+    
+    // Clean up timeouts
+    speakingTimeoutRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+    speakingTimeoutRef.current.clear();
+    
+    // Clean up audio elements
+    remoteAudioElements.forEach(audio => {
+      audio.pause();
+      audio.srcObject = null;
+    });
+    setRemoteAudioElements(new Map());
+    
+    navigate('/');
+  }, [roomId, navigate, closeAllPeerConnections, socket, isConnected, emit, remoteAudioElements]);
+
+  // Handle socket events
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleRoomJoined = (data) => {
+      console.log('Room joined successfully:', data);
+      setParticipants(data.users || []);
+      setRoomJoined(true);
+      setIsConnecting(false);
+      showToast('Successfully joined the call');
+    };
+
+    const handleUserJoined = async (data) => {
+      const { userId, userName: newUserName } = data;
+      console.log(`User joined: ${newUserName} (${userId})`);
+      
+      setParticipants(prev => {
+        const exists = prev.find(p => p.id === userId);
+        if (!exists) {
+          return [...prev, { id: userId, name: newUserName }];
+        }
+        return prev;
+      });
+      
+      showToast(`${newUserName} joined the call`);
+      
+      // Wait a bit before creating peer connection
+      setTimeout(async () => {
+        if (localStreamRef.current) {
+          try {
+            await createPeerConnection(userId, localStreamRef.current, (candidate) => {
+              console.log('Sending ICE candidate to:', userId);
+              emit('ice-candidate', { candidate, targetUserId: userId });
+            });
+            
+            const offer = await createOffer(userId);
+            if (offer) {
+              console.log('Sending offer to:', userId);
+              emit('offer', { offer, targetUserId: userId });
+            }
+          } catch (error) {
+            console.error('Error creating peer connection:', error);
+          }
+        }
+      }, 500);
+    };
+
+    const handleUserLeft = (data) => {
+      const { userId, userName: leftUserName } = data;
+      console.log(`User left: ${leftUserName} (${userId})`);
+      
+      setParticipants(prev => prev.filter(p => p.id !== userId));
+      showToast(`${leftUserName} left the call`);
+      
+      // Clean up peer connection
+      closePeerConnection(userId);
+      
+      // Clean up audio analyser
+      if (audioAnalysersRef.current.has(userId)) {
+        const { source } = audioAnalysersRef.current.get(userId);
+        source?.disconnect();
+        audioAnalysersRef.current.delete(userId);
       }
       
-      // Clean up media and connections
-      stopMedia();
-      closeAllPeerConnections();
+      // Clean up audio element
+      if (remoteAudioElements.has(userId)) {
+        const audio = remoteAudioElements.get(userId);
+        audio.pause();
+        audio.srcObject = null;
+        setRemoteAudioElements(prev => {
+          const updated = new Map(prev);
+          updated.delete(userId);
+          return updated;
+        });
+      }
+      
+      // Remove from speaking participants
+      setSpeakingParticipants(prev => {
+        const updated = new Set(prev);
+        updated.delete(userId);
+        return updated;
+      });
     };
-  }, [stopMedia, closeAllPeerConnections]);
+
+    const handleOfferReceived = async (data) => {
+      const { offer, fromUserId, userName: offerUserName } = data;
+      console.log(`Received offer from: ${offerUserName} (${fromUserId})`);
+      
+      if (!localStreamRef.current) {
+        console.error('No local stream available');
+        return;
+      }
+      
+      try {
+        // Create peer connection if it doesn't exist
+        if (!connectionStatus[fromUserId]) {
+          await createPeerConnection(fromUserId, localStreamRef.current, (candidate) => {
+            console.log('Sending ICE candidate to:', fromUserId);
+            emit('ice-candidate', { candidate, targetUserId: fromUserId });
+          });
+        }
+        
+        const answer = await handleOffer(fromUserId, offer);
+        if (answer) {
+          console.log('Sending answer to:', fromUserId);
+          emit('answer', { answer, targetUserId: fromUserId });
+        }
+      } catch (error) {
+        console.error('Error handling offer:', error);
+      }
+    };
+
+    const handleAnswerReceived = async (data) => {
+      const { answer, fromUserId } = data;
+      console.log(`Received answer from: ${fromUserId}`);
+      
+      try {
+        await handleAnswer(fromUserId, answer);
+      } catch (error) {
+        console.error('Error handling answer:', error);
+      }
+    };
+
+    const handleIceCandidateReceived = async (data) => {
+      const { candidate, fromUserId } = data;
+      console.log(`Received ICE candidate from: ${fromUserId}`);
+      
+      try {
+        await addIceCandidate(fromUserId, candidate);
+      } catch (error) {
+        console.error('Error adding ICE candidate:', error);
+      }
+    };
+
+    const handleError = (error) => {
+      console.error('Socket error:', error);
+      setConnectionError(error.message || 'Connection error occurred');
+      showToast(error.message || 'Connection error occurred', 'error');
+    };
+
+    // Setup event listeners
+    on('room-joined', handleRoomJoined);
+    on('user-joined', handleUserJoined);
+    on('user-left', handleUserLeft);
+    on('offer', handleOfferReceived);
+    on('answer', handleAnswerReceived);
+    on('ice-candidate', handleIceCandidateReceived);
+    on('error', handleError);
+
+    return () => {
+      // Clean up listeners
+      off('room-joined', handleRoomJoined);
+      off('user-joined', handleUserJoined);
+      off('user-left', handleUserLeft);
+      off('offer', handleOfferReceived);
+      off('answer', handleAnswerReceived);
+      off('ice-candidate', handleIceCandidateReceived);
+      off('error', handleError);
+    };
+  }, [
+    socket, 
+    isConnected,
+    emit, 
+    on, 
+    off, 
+    showToast, 
+    createPeerConnection, 
+    createOffer, 
+    handleOffer, 
+    handleAnswer, 
+    addIceCandidate,
+    closePeerConnection,
+    connectionStatus,
+    remoteAudioElements
+  ]);
+
+  // Initialize call
+  useEffect(() => {
+    let mounted = true;
+    
+    const initializeCall = async () => {
+      try {
+        setIsConnecting(true);
+        setConnectionError(null);
+        
+        console.log('Initializing call for room:', roomId);
+        
+        // Get user media first
+        const stream = await getUserMedia();
+        
+        if (!mounted) return;
+        
+        // Wait for socket connection
+        if (!socket || !isConnected) {
+          console.log('Waiting for socket connection...');
+          return;
+        }
+        
+        // Join room
+        console.log('Joining room:', roomId);
+        emit('join-room', {
+          roomId,
+          userName,
+          roomType: 'audio'
+        });
+        
+        // Start speaking detection
+        speakingIntervalRef.current = setInterval(detectSpeaking, 100);
+        
+      } catch (error) {
+        console.error('Error initializing call:', error);
+        if (mounted) {
+          setConnectionError(error.message);
+          setIsConnecting(false);
+          showToast(error.message, 'error');
+        }
+      }
+    };
+    
+    if (socket && isConnected) {
+      initializeCall();
+    }
+    
+    return () => {
+      mounted = false;
+      if (speakingIntervalRef.current) {
+        clearInterval(speakingIntervalRef.current);
+        speakingIntervalRef.current = null;
+      }
+    };
+  }, [roomId, userName, getUserMedia, detectSpeaking, socket, isConnected, emit, showToast]);
+
+  // Handle socket connection status
+  useEffect(() => {
+    if (socketError) {
+      console.error('Socket connection error:', socketError);
+      setConnectionError(`Connection failed: ${socketError}`);
+      showToast(`Connection failed: ${socketError}`, 'error');
+    }
+  }, [socketError, showToast]);
+
+  // Setup remote audio elements and analysers
+  useEffect(() => {
+    Object.entries(remoteStreams).forEach(([userId, stream]) => {
+      if (stream) {
+        // Create audio element if it doesn't exist
+        if (!remoteAudioElements.has(userId)) {
+          const audio = new Audio();
+          audio.autoplay = true;
+          audio.srcObject = stream;
+          
+          // Handle audio play promise
+          audio.play().catch(error => {
+            console.error('Error playing remote audio:', error);
+          });
+          
+          setRemoteAudioElements(prev => {
+            const updated = new Map(prev);
+            updated.set(userId, audio);
+            return updated;
+          });
+        }
+        
+        // Setup audio analyser
+        if (!audioAnalysersRef.current.has(userId)) {
+          setTimeout(() => {
+            setupAudioAnalyser(stream, userId);
+          }, 100);
+        }
+      }
+    });
+  }, [remoteStreams, setupAudioAnalyser, remoteAudioElements]);
 
   // Render participants
   const renderParticipants = () => {
@@ -1293,17 +1489,28 @@ const AudioCall = () => {
       ...participants
     ];
 
-    return allParticipants.map(participant => (
-      <ParticipantCard key={participant.id}>
-        <Avatar isSpeaking={speakingParticipants.has(participant.id)}>
-          {participant.name.charAt(0).toUpperCase()}
-        </Avatar>
-        <ParticipantName>{participant.name}</ParticipantName>
-        <ParticipantStatus>
-          {speakingParticipants.has(participant.id) ? '🎤 Speaking' : '🔇 Quiet'}
-        </ParticipantStatus>
-      </ParticipantCard>
-    ));
+    return allParticipants.map(participant => {
+      const isSpeaking = speakingParticipants.has(participant.id);
+      const status = connectionStatus[participant.id] || (participant.id === 'self' ? 'connected' : 'disconnected');
+      
+      let statusText = '🔇 Quiet';
+      if (isSpeaking) statusText = '🎤 Speaking';
+      if (status === 'connecting') statusText = '🔌 Connecting...';
+      if (status === 'connected' && !isSpeaking) statusText = '✅ Connected';
+      if (status === 'failed') statusText = '❌ Connection failed';
+      
+      return (
+        <ParticipantCard key={participant.id}>
+          <Avatar isSpeaking={isSpeaking}>
+            {participant.name.charAt(0).toUpperCase()}
+          </Avatar>
+          <ParticipantName>{participant.name}</ParticipantName>
+          <ParticipantStatus>
+            {statusText}
+          </ParticipantStatus>
+        </ParticipantCard>
+      );
+    });
   };
 
   return (
@@ -1315,11 +1522,19 @@ const AudioCall = () => {
         </Toast>
       )}
       
-      {/* Room info */}
+      {/* Hidden audio elements for remote streams */}
+      {Array.from(remoteAudioElements.entries()).map(([userId, audio]) => (
+        <RemoteAudio key={userId} ref={el => { if (el) el.srcObject = audio.srcObject; }} />
+      ))}
+      
+      {/* Room info with copy button */}
       <RoomInfo>
         <div>Room: {roomId}</div>
         <div>Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
         <div>Participants: {participants.length + 1}</div>
+        <CopyButton onClick={copyRoomCode}>
+          📋 Copy Room Code
+        </CopyButton>
       </RoomInfo>
       
       {/* Center loading/error info */}
@@ -1366,7 +1581,7 @@ const AudioCall = () => {
         
         <ControlButton 
           className="settings"
-          onClick={() => console.log('Settings clicked')}
+          onClick={() => showToast('Settings not implemented yet')}
           title="Settings"
         >
           ⚙️

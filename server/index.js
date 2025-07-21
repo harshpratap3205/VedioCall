@@ -1,491 +1,8 @@
-// const express = require('express');
-// const http = require('http');
-// const socketIo = require('socket.io');
-// const cors = require('cors');
-// const { v4: uuidv4 } = require('uuid');
-// require('dotenv').config();
+ 
 
-// const app = express();
-// const server = http.createServer(app);
+// server.js - Node.js/Express server with Socket.io (Optimized for Audio Calling)
+require('dotenv').config(); // MUST BE AT THE VERY TOP to load environment variables
 
-// // Configure CORS for Socket.io
-// const io = socketIo(server, {
-//   cors: {
-//     origin: process.env.CLIENT_URL || "http://localhost:3000",
-//     methods: ["GET", "POST"]
-//   }
-// });
-
-// // Middleware
-// app.use(cors());
-// app.use(express.json());
-
-// // Store rooms and users
-// const rooms = new Map();
-// const users = new Map();
-
-// // Helper functions
-// const getRoomInfo = (roomId) => {
-//   const room = rooms.get(roomId);
-  
-//   if (!room) return null;
-  
-//   return {
-//     id: roomId,
-//     userCount: room.users.size,
-//     users: Array.from(room.users.values()).map(user => ({
-//       id: user.id,
-//       name: user.name,
-//       isAudioEnabled: user.isAudioEnabled,
-//       isVideoEnabled: user.isVideoEnabled
-//     })),
-//     createdAt: room.createdAt,
-//     roomType: room.roomType
-//   };
-// };
-
-// const getActiveRooms = () => {
-//   const activeRooms = [];
-  
-//   rooms.forEach((room, roomId) => {
-//     if (room.users.size > 0) {
-//       activeRooms.push({
-//         id: roomId,
-//         userCount: room.users.size,
-//         createdAt: room.createdAt,
-//         roomType: room.roomType
-//       });
-//     }
-//   });
-  
-//   // Sort rooms by user count (descending)
-//   return activeRooms.sort((a, b) => b.userCount - a.userCount);
-// };
-
-// // API Routes
-// app.get('/api/health', (req, res) => {
-//   res.json({ status: 'Server is running!', version: '1.0.0' });
-// });
-
-// app.get('/api/rooms', (req, res) => {
-//   res.json(getActiveRooms());
-// });
-
-// app.get('/api/rooms/:roomId', (req, res) => {
-//   const { roomId } = req.params;
-//   const roomInfo = getRoomInfo(roomId);
-  
-//   if (roomInfo) {
-//     res.json(roomInfo);
-//   } else {
-//     res.json({
-//       id: roomId,
-//       userCount: 0,
-//       users: [],
-//       exists: false
-//     });
-//   }
-// });
-
-// // Socket.io connection handling
-// io.on('connection', (socket) => {
-//   console.log(`User connected: ${socket.id}`);
-  
-//   // Setup heartbeat/ping to keep connections alive
-//   let heartbeatInterval;
-  
-//   const startHeartbeat = () => {
-//     // Clear any existing interval
-//     if (heartbeatInterval) {
-//       clearInterval(heartbeatInterval);
-//     }
-    
-//     // Send ping every 5 seconds to keep connection alive
-//     heartbeatInterval = setInterval(() => {
-//       socket.emit('ping', { timestamp: Date.now() });
-//     }, 5000);
-//   };
-  
-//   // Start heartbeat on connection
-//   startHeartbeat();
-  
-//   // Respond to client pongs
-//   socket.on('pong', (data) => {
-//     const latency = Date.now() - data.timestamp;
-//     socket.emit('latency', { value: latency });
-    
-//     // If we detect high latency, notify the client
-//     if (latency > 300) { // 300ms threshold
-//       socket.emit('connection-warning', { 
-//         type: 'high-latency',
-//         value: latency,
-//         message: 'High network latency detected'
-//       });
-//     }
-//   });
-  
-//   // Handle heartbeat from client
-//   socket.on('heartbeat', () => {
-//     // Reset the heartbeat interval to avoid drift
-//     startHeartbeat();
-//   });
-
-//   // Get active rooms
-//   socket.on('get-active-rooms', () => {
-//     socket.emit('active-rooms', getActiveRooms());
-//   });
-
-//   // Join room
-//   socket.on('join-room', ({ roomId, userName, roomType = 'video' }) => {
-//     // Check if user is already in a room
-//     if (socket.roomId) {
-//       // If trying to join the same room, ignore
-//       if (socket.roomId === roomId) {
-//         return;
-//       }
-      
-//       // Leave current room first
-//       const currentRoom = rooms.get(socket.roomId);
-//       if (currentRoom) {
-//         currentRoom.users.delete(socket.id);
-//         socket.leave(socket.roomId);
-        
-//         // Notify others in the old room
-//         socket.to(socket.roomId).emit('user-left', {
-//           userId: socket.id,
-//           userCount: currentRoom.users.size
-//         });
-        
-//         // Delete room if empty
-//         if (currentRoom.users.size === 0) {
-//           rooms.delete(socket.roomId);
-//           io.emit('room-deleted', socket.roomId);
-//         }
-//       }
-//     }
-    
-//     console.log(`User ${userName} (${socket.id}) joining room ${roomId}`);
-    
-//     // Create user object
-//     const user = {
-//       id: socket.id,
-//       name: userName || `User-${socket.id.substring(0, 6)}`,
-//       socketId: socket.id,
-//       isAudioEnabled: true,
-//       isVideoEnabled: roomType === 'video',
-//       roomId: roomId, // Store roomId in user object
-//       lastActive: Date.now() // Update last active timestamp
-//     };
-    
-//     // Store user
-//     users.set(socket.id, user);
-    
-//     // Create room if it doesn't exist
-//     if (!rooms.has(roomId)) {
-//       rooms.set(roomId, {
-//         id: roomId,
-//         users: new Map(),
-//         createdAt: new Date(),
-//         roomType
-//       });
-//     }
-    
-//     const room = rooms.get(roomId);
-//     room.users.set(socket.id, user);
-    
-//     // Join socket room
-//     socket.join(roomId);
-//     socket.roomId = roomId;
-    
-//     // Notify other users in the room
-//     socket.to(roomId).emit('user-joined', {
-//       userId: socket.id,
-//       userName: user.name,
-//       userCount: room.users.size
-//     });
-    
-//     // Send room info to the joining user
-//     socket.emit('joined-room', {
-//       roomId,
-//       userId: socket.id,
-//       userName: user.name,
-//       users: Array.from(room.users.values())
-//         .filter(u => u.id !== socket.id)
-//         .map(u => ({
-//           id: u.id,
-//           name: u.name,
-//           isAudioEnabled: u.isAudioEnabled,
-//           isVideoEnabled: u.isVideoEnabled
-//         })),
-//       userCount: room.users.size,
-//       roomType: room.roomType
-//     });
-    
-//     // Broadcast updated room info
-//     io.emit('room-updated', {
-//       id: roomId,
-//       userCount: room.users.size,
-//       createdAt: room.createdAt,
-//       roomType: room.roomType
-//     });
-//   });
-
-//   // Handle WebRTC signaling
-//   socket.on('offer', ({ offer, targetUserId }) => {
-//     console.log(`Offer from ${socket.id} to ${targetUserId}`);
-//     const user = users.get(socket.id);
-    
-//     socket.to(targetUserId).emit('offer', {
-//       offer,
-//       fromUserId: socket.id,
-//       fromUserName: user?.name
-//     });
-//   });
-
-//   socket.on('answer', ({ answer, targetUserId }) => {
-//     console.log(`Answer from ${socket.id} to ${targetUserId}`);
-//     const user = users.get(socket.id);
-    
-//     socket.to(targetUserId).emit('answer', {
-//       answer,
-//       fromUserId: socket.id,
-//       fromUserName: user?.name
-//     });
-//   });
-
-//   socket.on('ice-candidate', ({ candidate, targetUserId }) => {
-//     console.log(`ICE candidate from ${socket.id} to ${targetUserId}`);
-//     socket.to(targetUserId).emit('ice-candidate', {
-//       candidate,
-//       fromUserId: socket.id
-//     });
-//   });
-
-//   // Handle media controls
-//   socket.on('toggle-audio', ({ roomId, isAudioEnabled }) => {
-//     const user = users.get(socket.id);
-//     const room = rooms.get(roomId);
-    
-//     if (user && room) {
-//       user.isAudioEnabled = isAudioEnabled;
-//       room.users.set(socket.id, user);
-      
-//       socket.to(roomId).emit('user-audio-toggle', {
-//         userId: socket.id,
-//         isAudioEnabled
-//       });
-//     }
-//   });
-
-//   socket.on('toggle-video', ({ roomId, isVideoEnabled }) => {
-//     const user = users.get(socket.id);
-//     const room = rooms.get(roomId);
-    
-//     if (user && room) {
-//       user.isVideoEnabled = isVideoEnabled;
-//       room.users.set(socket.id, user);
-      
-//       socket.to(roomId).emit('user-video-toggle', {
-//         userId: socket.id,
-//         isVideoEnabled
-//       });
-//     }
-//   });
-
-//   // Handle chat messages
-//   socket.on('chat-message', ({ roomId, message }) => {
-//     const user = users.get(socket.id);
-//     const room = rooms.get(roomId);
-    
-//     if (!user || !room) return;
-    
-//     const chatMessage = {
-//       id: uuidv4(),
-//       userId: socket.id,
-//       userName: user.name || 'Anonymous',
-//       message,
-//       timestamp: new Date()
-//     };
-    
-//     io.to(roomId).emit('chat-message', chatMessage);
-//   });
-
-//   // Handle screen sharing
-//   socket.on('start-screen-share', ({ roomId }) => {
-//     const user = users.get(socket.id);
-    
-//     if (user) {
-//       socket.to(roomId).emit('user-screen-share-started', {
-//         userId: socket.id,
-//         userName: user.name
-//       });
-//     }
-//   });
-
-//   socket.on('stop-screen-share', ({ roomId }) => {
-//     socket.to(roomId).emit('user-screen-share-stopped', {
-//       userId: socket.id
-//     });
-//   });
-
-//   // Handle disconnection
-//   socket.on('disconnect', () => {
-//     console.log(`User disconnected: ${socket.id}`);
-    
-//     // Clear heartbeat interval
-//     if (heartbeatInterval) {
-//       clearInterval(heartbeatInterval);
-//     }
-    
-//     const user = users.get(socket.id);
-//     const roomId = socket.roomId;
-    
-//     // Add a short delay before cleaning up to prevent race conditions
-//     // between room join and connection establishment
-//     setTimeout(() => {
-//       if (roomId && rooms.has(roomId)) {
-//         const room = rooms.get(roomId);
-//         room.users.delete(socket.id);
-        
-//         // Notify other users
-//         io.to(roomId).emit('user-left', {
-//           userId: socket.id,
-//           userName: user?.name,
-//           userCount: room.users.size
-//         });
-        
-//         // Broadcast updated room info if room still exists
-//         if (room.users.size > 0) {
-//           io.emit('room-updated', {
-//             id: roomId,
-//             userCount: room.users.size,
-//             createdAt: room.createdAt,
-//             roomType: room.roomType
-//           });
-//           console.log(`Room ${roomId} now has ${room.users.size} users`);
-//         } else {
-//           // Clean up empty rooms
-//           rooms.delete(roomId);
-//           io.emit('room-deleted', roomId);
-//           console.log(`Room ${roomId} deleted (empty)`);
-//         }
-//       }
-      
-//       users.delete(socket.id);
-//     }, 1000); // Add a 1-second delay
-//   });
-
-//   // Handle leave room
-//   socket.on('leave-room', () => {
-//     const roomId = socket.roomId;
-//     const user = users.get(socket.id);
-    
-//     if (roomId && rooms.has(roomId) && user) {
-//       const room = rooms.get(roomId);
-      
-//       // Set room ID to null immediately to prevent new connections to this room
-//       const oldRoomId = socket.roomId;
-//       socket.roomId = null;
-//       socket.leave(oldRoomId);
-      
-//       // Add a short delay before cleaning up to prevent race conditions
-//       setTimeout(() => {
-//         if (rooms.has(oldRoomId)) {
-//           const room = rooms.get(oldRoomId);
-//           room.users.delete(socket.id);
-          
-//           // Notify other users
-//           io.to(oldRoomId).emit('user-left', {
-//             userId: socket.id,
-//             userName: user.name,
-//             userCount: room.users.size
-//           });
-          
-//           // Broadcast updated room info if room still exists
-//           if (room.users.size > 0) {
-//             io.emit('room-updated', {
-//               id: oldRoomId,
-//               userCount: room.users.size,
-//               createdAt: room.createdAt,
-//               roomType: room.roomType
-//             });
-//           } else {
-//             // Clean up empty rooms
-//             rooms.delete(oldRoomId);
-//             io.emit('room-deleted', oldRoomId);
-//             console.log(`Room ${oldRoomId} deleted (empty)`);
-//           }
-//         }
-//       }, 1000); // Add a 1-second delay
-//     }
-//   });
-// });
-
-// // Periodic cleanup of stale rooms and disconnected users
-// const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
-// const ROOM_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
-// const USER_INACTIVITY = 30 * 60 * 1000; // 30 minutes
-
-// setInterval(() => {
-//   const now = Date.now();
-  
-//   // Clean up inactive users
-//   users.forEach((user, userId) => {
-//     const inactiveTime = now - (user.lastActive || 0);
-    
-//     if (inactiveTime > USER_INACTIVITY) {
-//       const socket = io.sockets.sockets.get(userId);
-      
-//       if (!socket || !socket.connected) {
-//         users.delete(userId);
-//         console.log(`Removed inactive user: ${userId}`);
-        
-//         // Clean up from rooms
-//         if (user.roomId && rooms.has(user.roomId)) {
-//           const room = rooms.get(user.roomId);
-//           room.users.delete(userId);
-          
-//           if (room.users.size === 0) {
-//             rooms.delete(user.roomId);
-//             io.emit('room-deleted', user.roomId);
-//             console.log(`Room ${user.roomId} deleted (inactive user)`);
-//           } else {
-//             io.emit('room-updated', {
-//               id: user.roomId,
-//               userCount: room.users.size,
-//               createdAt: room.createdAt,
-//               roomType: room.roomType
-//             });
-//           }
-//         }
-//       }
-//     }
-//   });
-  
-//   // Clean up old empty rooms
-//   rooms.forEach((room, roomId) => {
-//     const roomAge = now - room.createdAt.getTime();
-    
-//     if (room.users.size === 0 && roomAge > ROOM_EXPIRY) {
-//       rooms.delete(roomId);
-//       io.emit('room-deleted', roomId);
-//       console.log(`Room ${roomId} deleted (expired)`);
-//     }
-//   });
-// }, CLEANUP_INTERVAL);
-
-// const PORT = process.env.PORT || 5000;
-
-// server.listen(PORT, () => {
-//   console.log(`Server running on port ${PORT}`);
-//   console.log(`Client URL: ${process.env.CLIENT_URL || "http://localhost:3000"}`);
-// }); 
-
-
-
-
-
-// server.js - Node.js/Express server with Socket.io
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -496,429 +13,434 @@ const os = require('os');
 const app = express();
 const server = http.createServer(app);
 
-// Update CORS configuration to allow Vercel domain
+// --- CORS Configuration ---
+// Define allowed origins from environment variables or defaults
+const allowedOrigins = [
+    'http://localhost:3000',                              // Local development client
+    process.env.FRONTEND_URL                              // Dynamically from environment variable
+].filter(Boolean); // Remove any undefined/null values
+
+// CORS for Express API routes
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl requests)
-    if (!origin) return callback(null, true);
-    
-    // List of allowed origins
-    const allowedOrigins = [
-      'http://localhost:3000',                      // Local development
-      'https://videocallapp-client.vercel.app',     // Default Vercel domain
-      'https://videocallapp.vercel.app',            // Custom Vercel domain if you set one up
-      process.env.FRONTEND_URL                      // From environment variable if set
-    ].filter(Boolean); // Remove any undefined/null values
-    
-    // Check if origin is allowed
-    if (allowedOrigins.indexOf(origin) === -1) {
-      console.log(`Origin ${origin} not allowed by CORS`);
-      return callback(null, false);
-    }
-    
-    return callback(null, true);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    origin: function(origin, callback) {
+        // Allow requests with no origin (e.g., direct API calls, mobile apps)
+        if (!origin) return callback(null, true); 
+        if (allowedOrigins.indexOf(origin) === -1) {
+            console.log(`Origin ${origin} not allowed by Express CORS`);
+            return callback(new Error('Not allowed by CORS'));
+        }
+        return callback(null, true);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // Socket.io CORS configuration
 const io = socketIo(server, {
-  cors: {
-    origin: function(origin, callback) {
-      // Allow requests with no origin (like mobile apps, curl requests)
-      if (!origin) return callback(null, true);
-      
-      // List of allowed origins (same as for Express)
-      const allowedOrigins = [
-        'http://localhost:3000',                    // Local development
-        'https://videocallapp-client.vercel.app',   // Default Vercel domain
-        'https://videocallapp.vercel.app',          // Custom Vercel domain
-        process.env.FRONTEND_URL                    // From environment variable if set
-      ].filter(Boolean);
-      
-      // Check if origin is allowed
-      if (allowedOrigins.indexOf(origin) === -1) {
-        console.log(`Origin ${origin} not allowed by Socket.io CORS`);
-        return callback(null, false);
-      }
-      
-      return callback(null, true);
+    cors: {
+        origin: function(origin, callback) {
+            if (!origin) return callback(null, true); // Allow requests with no origin
+            if (allowedOrigins.indexOf(origin) === -1) {
+                console.log(`Origin ${origin} not allowed by Socket.io CORS`);
+                return callback(new Error('Not allowed by CORS'));
+            }
+            return callback(null, true);
+        },
+        methods: ['GET', 'POST'],
+        credentials: true
     },
-    methods: ['GET', 'POST'],
-    credentials: true
-  },
-  allowEIO3: true
+    allowEIO3: true, // For compatibility with older Socket.IO clients if needed
+    maxHttpBufferSize: 1e8 // Increase buffer size for large SDPs or binary data
 });
 
-// Store room information and user data
-const rooms = new Map();
-const users = new Map();
+// --- Data Stores ---
+const rooms = new Map(); // Stores general room information and a map of users currently in it.
+const users = new Map(); // Stores global user information by their socket.id.
 
-// Utility function to get server IP addresses
+// --- Utility Functions ---
 function getServerIPs() {
-  const interfaces = os.networkInterfaces();
-  const ips = [];
-  
-  for (const name of Object.keys(interfaces)) {
-    for (const interface of interfaces[name]) {
-      if (interface.family === 'IPv4' && !interface.internal) {
-        ips.push(interface.address);
-      }
-    }
-  }
-  
-  return ips;
-}
-
-// Socket.io connection handling
-io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
-  
-  // Store user information
-  users.set(socket.id, {
-    id: socket.id,
-    name: null,
-    roomId: null,
-    joinedAt: new Date()
-  });
-
-  // Handle joining a room
-  socket.on('join-room', ({ roomId, userName }) => {
-    try {
-      console.log(`User ${userName} (${socket.id}) joining room: ${roomId}`);
-      
-      // Update user info
-      const user = users.get(socket.id);
-      if (user) {
-        user.name = userName;
-        user.roomId = roomId;
-      }
-      
-      // Leave any existing room first
-      const currentRooms = Array.from(socket.rooms).filter(room => room !== socket.id);
-      currentRooms.forEach(room => {
-        socket.leave(room);
-        console.log(`User ${socket.id} left room: ${room}`);
-      });
-      
-      // Join the new room
-      socket.join(roomId);
-      
-      // Initialize room if it doesn't exist
-      if (!rooms.has(roomId)) {
-        rooms.set(roomId, {
-          id: roomId,
-          users: new Map(),
-          createdAt: new Date()
-        });
-      }
-      
-      const room = rooms.get(roomId);
-      
-      // Get existing users in the room (excluding current user)
-      const existingUsers = Array.from(room.users.values()).filter(u => u.id !== socket.id);
-      
-      // Add current user to room
-      room.users.set(socket.id, {
-        id: socket.id,
-        name: userName,
-        joinedAt: new Date()
-      });
-      
-      // Notify the joining user about existing users
-      socket.emit('joined-room', {
-        roomId,
-        users: existingUsers
-      });
-      
-      // Notify existing users about the new user
-      socket.to(roomId).emit('user-joined', {
-        userId: socket.id,
-        userName: userName
-      });
-      
-      console.log(`Room ${roomId} now has ${room.users.size} users`);
-      
-    } catch (error) {
-      console.error('Error joining room:', error);
-      socket.emit('error', { message: 'Failed to join room' });
-    }
-  });
-
-  // Handle WebRTC offer
-  socket.on('offer', ({ offer, targetUserId }) => {
-    const user = users.get(socket.id);
-    if (user) {
-      console.log(`Forwarding offer from ${user.name} (${socket.id}) to ${targetUserId}`);
-      socket.to(targetUserId).emit('offer', {
-        offer,
-        fromUserId: socket.id,
-        fromUserName: user.name
-      });
-    }
-  });
-
-  // Handle WebRTC answer
-  socket.on('answer', ({ answer, targetUserId }) => {
-    const user = users.get(socket.id);
-    if (user) {
-      console.log(`Forwarding answer from ${user.name} (${socket.id}) to ${targetUserId}`);
-      socket.to(targetUserId).emit('answer', {
-        answer,
-        fromUserId: socket.id,
-        fromUserName: user.name
-      });
-    }
-  });
-
-  // Handle ICE candidates
-  socket.on('ice-candidate', ({ candidate, targetUserId }) => {
-    console.log(`Forwarding ICE candidate from ${socket.id} to ${targetUserId}`);
-    socket.to(targetUserId).emit('ice-candidate', {
-      candidate,
-      fromUserId: socket.id
-    });
-  });
-
-  // Handle audio toggle
-  socket.on('audio-toggle', ({ isEnabled }) => {
-    const user = users.get(socket.id);
-    if (user && user.roomId) {
-      socket.to(user.roomId).emit('user-audio-toggle', {
-        userId: socket.id,
-        isEnabled
-      });
-    }
-  });
-
-  // Handle video toggle
-  socket.on('video-toggle', ({ isEnabled }) => {
-    const user = users.get(socket.id);
-    if (user && user.roomId) {
-      socket.to(user.roomId).emit('user-video-toggle', {
-        userId: socket.id,
-        isEnabled
-      });
-    }
-  });
-
-  // Handle screen share toggle
-  socket.on('screen-share-toggle', ({ isEnabled }) => {
-    const user = users.get(socket.id);
-    if (user && user.roomId) {
-      socket.to(user.roomId).emit('user-screen-share-toggle', {
-        userId: socket.id,
-        isEnabled
-      });
-    }
-  });
-
-  // Handle chat messages
-  socket.on('chat-message', ({ message, roomId }) => {
-    const user = users.get(socket.id);
-    if (user && user.roomId === roomId) {
-      const messageData = {
-        id: Date.now(),
-        userId: socket.id,
-        userName: user.name,
-        message,
-        timestamp: new Date()
-      };
-      
-      // Send to all users in the room including sender
-      io.to(roomId).emit('chat-message', messageData);
-      console.log(`Chat message in room ${roomId} from ${user.name}: ${message}`);
-    }
-  });
-
-  // Handle leaving room
-  socket.on('leave-room', () => {
-    handleUserLeave(socket);
-  });
-
-  // Handle disconnect
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
-    handleUserLeave(socket);
-  });
-
-  // Function to handle user leaving
-  function handleUserLeave(socket) {
-    const user = users.get(socket.id);
-    if (user && user.roomId) {
-      const roomId = user.roomId;
-      const room = rooms.get(roomId);
-      
-      if (room) {
-        // Remove user from room
-        room.users.delete(socket.id);
-        
-        // Notify other users in the room
-        socket.to(roomId).emit('user-left', {
-          userId: socket.id,
-          userName: user.name
-        });
-        
-        console.log(`User ${user.name} (${socket.id}) left room ${roomId}`);
-        
-        // Clean up empty room
-        if (room.users.size === 0) {
-          rooms.delete(roomId);
-          console.log(`Room ${roomId} deleted (empty)`);
+    const interfaces = os.networkInterfaces();
+    const ips = [];
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                ips.push(iface.address);
+            }
         }
-      }
     }
-    
-    // Remove user from global users map
-    users.delete(socket.id);
-  }
-});
-
-// API endpoint to get server info
-app.get('/api/server-info', (req, res) => {
-  res.json({
-    serverIPs: getServerIPs(),
-    port: PORT,
-    timestamp: new Date(),
-    activeRooms: rooms.size,
-    activeUsers: users.size
-  });
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy',
-    timestamp: new Date(),
-    uptime: process.uptime()
-  });
-});
-
-// Add debug route to check environment and file paths
-app.get('/debug', (req, res) => {
-  const fs = require('fs');
-  
-  // Check for client build paths
-  const possiblePaths = [
-    path.join(__dirname, '../client/build'),
-    path.join(__dirname, 'client/build'),
-    path.join(__dirname, 'client'),
-  ];
-  
-  const pathResults = possiblePaths.map(p => {
-    try {
-      const exists = fs.existsSync(p);
-      const hasIndexHtml = exists ? fs.existsSync(path.join(p, 'index.html')) : false;
-      return {
-        path: p,
-        exists,
-        hasIndexHtml,
-        files: exists ? fs.readdirSync(p).slice(0, 10) : [] // Show up to 10 files
-      };
-    } catch (err) {
-      return { path: p, error: err.message };
-    }
-  });
-  
-  res.json({
-    environment: {
-      nodeEnv: process.env.NODE_ENV,
-      port: process.env.PORT,
-      renderService: process.env.RENDER,
-      workingDirectory: process.cwd(),
-    },
-    paths: pathResults,
-    serverInfo: {
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      memoryUsage: process.memoryUsage(),
-      activeRooms: rooms.size,
-      activeUsers: users.size
-    }
-  });
-});
-
-// Serve static files from client/build in production
-if (process.env.NODE_ENV === 'production') {
-  // Check multiple possible locations for the client build
-  const possiblePaths = [
-    path.join(__dirname, '../client/build'),    // Standard monorepo structure
-    path.join(__dirname, 'client/build'),       // If client/build was copied to server/client/build
-    path.join(__dirname, 'client')              // If client/build was copied to server/client
-  ];
-  
-  // Find the first path that exists
-  let clientBuildPath;
-  for (const pathToCheck of possiblePaths) {
-    try {
-      // Check if the directory exists
-      if (require('fs').existsSync(pathToCheck) && 
-          require('fs').existsSync(path.join(pathToCheck, 'index.html'))) {
-        clientBuildPath = pathToCheck;
-        break;
-      }
-    } catch (err) {
-      console.log(`Path ${pathToCheck} not found`);
-    }
-  }
-  
-  if (clientBuildPath) {
-    console.log('Serving static files from:', clientBuildPath);
-    
-    // Serve static files
-    app.use(express.static(clientBuildPath));
-    
-    // Handle React routing by serving index.html for all other routes
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(clientBuildPath, 'index.html'));
-    });
-  } else {
-    console.error('Could not find client build directory!');
-    app.get('*', (req, res) => {
-      res.status(500).send('Server configuration error: Client build directory not found');
-    });
-  }
-} else {
-  // In development, just handle the API routes and let React dev server handle frontend
-  app.get('*', (req, res) => {
-    res.json({ 
-      message: 'Server running in development mode',
-      info: 'Frontend should be served by React development server on port 3000'
-    });
-  });
+    return ips;
 }
 
-// Start server
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, '0.0.0.0', () => {
-  const serverIPs = getServerIPs();
-  console.log(`\n🚀 Video Call Server running on port ${PORT}`);
-  console.log(`📡 Server accessible at:`);
-  console.log(`   - Local: http://localhost:${PORT}`);
-  
-  serverIPs.forEach(ip => {
-    console.log(`   - Network: http://${ip}:${PORT}`);
-  });
-  
-  console.log(`\n💡 Other devices can connect using your network IP address`);
-  console.log(`📱 Make sure firewall allows connections on port ${PORT}\n`);
+// --- API Routes (for Express) ---
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'Server is running!', version: '1.0.0', timestamp: new Date() });
 });
 
-// Graceful shutdown
+app.get('/api/server-info', (req, res) => {
+    res.json({
+        serverIPs: getServerIPs(),
+        port: process.env.PORT || 3001,
+        timestamp: new Date(),
+        activeRooms: rooms.size,
+        activeUsers: users.size
+    });
+});
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        timestamp: new Date(),
+        uptime: process.uptime()
+    });
+});
+
+// --- Socket.io Connection Handling ---
+io.on('connection', (socket) => {
+    console.log(`User connected: ${socket.id}`);
+
+    // Initialize user data when they connect
+    users.set(socket.id, {
+        id: socket.id,
+        name: null,         // Will be set on 'join-room'
+        roomId: null,       // Will be set on 'join-room'
+        joinedAt: new Date(),
+        isAudioEnabled: true,
+        isVideoEnabled: false, // Default to false for audio calls
+        isScreenSharing: false
+    });
+
+    /**
+     * Handles a user leaving their current room and cleans up.
+     * This function is called on 'leave-room' and 'disconnect' events.
+     * @param {Socket} socket - The Socket.IO socket object of the user.
+     */
+    function handleUserLeave(socket) {
+        const user = users.get(socket.id);
+        if (user && user.roomId) {
+            const roomId = user.roomId;
+            const room = rooms.get(roomId);
+
+            if (room) {
+                room.users.delete(socket.id); // Remove user from the room's user map
+
+                // Notify other users in the room that this user has left
+                socket.to(roomId).emit('user-left', {
+                    userId: socket.id,
+                    userName: user.name,
+                    userCount: room.users.size
+                });
+                console.log(`User ${user.name} (${socket.id}) left room ${roomId}`);
+
+                // Clean up empty room
+                if (room.users.size === 0) {
+                    rooms.delete(roomId);
+                    io.emit('room-deleted', roomId); // Notify all clients that a room was deleted
+                    console.log(`Room ${roomId} deleted (empty)`);
+                } else {
+                    io.emit('room-updated', { // Update room info for remaining users
+                        id: roomId,
+                        userCount: room.users.size,
+                        createdAt: room.createdAt
+                    });
+                }
+            }
+        }
+        users.delete(socket.id); // Always remove from global users map
+    }
+
+    // --- Socket.io Event Listeners ---
+
+    // Event: `join-room` - A user requests to join a specific room.
+    socket.on('join-room', ({ roomId, userName, roomType = 'audio' }) => { // Default roomType to 'audio'
+        try {
+            console.log(`User ${userName} (${socket.id}) attempting to join room: ${roomId}`);
+
+            const user = users.get(socket.id);
+            if (!user) {
+                console.warn(`User ${socket.id} not found in global map on join-room attempt.`);
+                socket.emit('error', { message: 'User data not initialized. Please refresh.' });
+                return;
+            }
+
+            // If user is already in a room, make them leave it first
+            if (user.roomId && user.roomId !== roomId) {
+                console.log(`User ${user.name} (${socket.id}) leaving old room: ${user.roomId}`);
+                // Use a temporary socket object for handleUserLeave to prevent infinite recursion
+                const tempSocket = { id: socket.id, roomId: user.roomId, to: socket.to, leave: socket.leave };
+                handleUserLeave(tempSocket); // Clean up from the old room
+                socket.leave(user.roomId); // Ensure socket leaves the old room
+            }
+
+            // Update user's current room ID and name
+            user.roomId = roomId;
+            user.name = userName;
+            user.isAudioEnabled = true;
+            user.isVideoEnabled = (roomType === 'video'); // Only enable video if roomType is 'video'
+            user.isScreenSharing = false;
+            users.set(socket.id, user); // Save updated user info
+
+            socket.join(roomId); // Join the Socket.IO room
+
+            // Initialize room if it doesn't exist
+            if (!rooms.has(roomId)) {
+                rooms.set(roomId, {
+                    id: roomId,
+                    users: new Map(), // Map of users in this specific room
+                    createdAt: new Date(),
+                    roomType: roomType // Store room type
+                });
+                io.emit('new-room-created', { id: roomId, roomType, createdAt: new Date() }); // Notify all of new room
+            }
+
+            const room = rooms.get(roomId);
+
+            // Notify existing users in the room about the new user joining
+            Array.from(room.users.values()).forEach(existingUser => {
+                if (existingUser.id !== socket.id) {
+                    socket.to(existingUser.id).emit('user-joined', {
+                        userId: socket.id,
+                        userName: user.name,
+                        isAudioEnabled: user.isAudioEnabled,
+                        isVideoEnabled: user.isVideoEnabled
+                    });
+                }
+            });
+
+            room.users.set(socket.id, user); // Add current user to room's user map (after notifying existing users)
+
+            // Send information about existing users to the newly joined user
+            const existingUsersInRoom = Array.from(room.users.values())
+                                        .filter(u => u.id !== socket.id)
+                                        .map(u => ({
+                                            id: u.id,
+                                            name: u.name,
+                                            isAudioEnabled: u.isAudioEnabled,
+                                            isVideoEnabled: u.isVideoEnabled
+                                        }));
+
+            socket.emit('joined-room', {
+                roomId,
+                userId: socket.id,
+                userName: user.name,
+                roomType: room.roomType,
+                users: existingUsersInRoom // Send info about existing peers
+            });
+
+            console.log(`User ${user.name} (${socket.id}) successfully joined room ${roomId}. Room now has ${room.users.size} users.`);
+
+            // Broadcast updated room info (user count changes)
+            io.emit('room-updated', {
+                id: roomId,
+                userCount: room.users.size,
+                createdAt: room.createdAt,
+                roomType: room.roomType
+            });
+
+        } catch (error) {
+            console.error(`Error for user ${socket.id} joining room ${roomId}:`, error);
+            socket.emit('error', { message: `Failed to join room ${roomId}.` });
+        }
+    });
+
+    // Event: `offer` - WebRTC signaling offer from one peer to another.
+    socket.on('offer', ({ offer, targetUserId }) => {
+        const fromUser = users.get(socket.id);
+        if (fromUser) {
+            const targetSocket = io.sockets.sockets.get(targetUserId);
+            const targetUser = users.get(targetUserId);
+
+            if (targetSocket && targetUser && fromUser.roomId === targetUser.roomId) {
+                console.log(`Forwarding offer from ${fromUser.name} (${socket.id}) to ${targetUser.name} (${targetUserId})`);
+                targetSocket.emit('offer', {
+                    offer,
+                    fromUserId: socket.id,
+                    fromUserName: fromUser.name
+                });
+            } else {
+                console.warn(`Offer: Target user ${targetUserId} not found or not in same room as ${socket.id}.`);
+                socket.emit('error', { message: `Could not send offer to ${targetUserId}. User not available or in a different room.` });
+            }
+        }
+    });
+
+    // Event: `answer` - WebRTC signaling answer from one peer to another.
+    socket.on('answer', ({ answer, targetUserId }) => {
+        const fromUser = users.get(socket.id);
+        if (fromUser) {
+            const targetSocket = io.sockets.sockets.get(targetUserId);
+            const targetUser = users.get(targetUserId);
+
+            if (targetSocket && targetUser && fromUser.roomId === targetUser.roomId) {
+                console.log(`Forwarding answer from ${fromUser.name} (${socket.id}) to ${targetUser.name} (${targetUserId})`);
+                targetSocket.emit('answer', {
+                    answer,
+                    fromUserId: socket.id,
+                    fromUserName: fromUser.name
+                });
+            } else {
+                console.warn(`Answer: Target user ${targetUserId} not found or not in same room as ${socket.id}.`);
+                socket.emit('error', { message: `Could not send answer to ${targetUserId}. User not available or in a different room.` });
+            }
+        }
+    });
+
+    // Event: `ice-candidate` - WebRTC ICE candidate from one peer to another.
+    socket.on('ice-candidate', ({ candidate, targetUserId }) => {
+        const fromUser = users.get(socket.id);
+        if (fromUser) {
+            const targetSocket = io.sockets.sockets.get(targetUserId);
+            const targetUser = users.get(targetUserId);
+
+            if (targetSocket && targetUser && fromUser.roomId === targetUser.roomId) {
+                targetSocket.emit('ice-candidate', {
+                    candidate,
+                    fromUserId: socket.id
+                });
+            } else {
+                console.warn(`ICE Candidate: Target user ${targetUserId} not found or not in same room as ${socket.id}.`);
+            }
+        }
+    });
+
+    // Event: `audio-toggle` - User toggles their microphone.
+    socket.on('audio-toggle', ({ isEnabled }) => {
+        const user = users.get(socket.id);
+        if (user && user.roomId && rooms.has(user.roomId)) {
+            user.isAudioEnabled = isEnabled;
+            rooms.get(user.roomId).users.set(socket.id, user); // Update user in room's map
+            console.log(`User ${user.name} (${socket.id}) audio toggled to: ${isEnabled}`);
+            socket.to(user.roomId).emit('user-audio-toggle', {
+                userId: socket.id,
+                isEnabled
+            });
+        }
+    });
+
+    // Event: `video-toggle` - User toggles their camera. (Relevant even for audio-only if video is later enabled)
+    socket.on('video-toggle', ({ isEnabled }) => {
+        const user = users.get(socket.id);
+        if (user && user.roomId && rooms.has(user.roomId)) {
+            user.isVideoEnabled = isEnabled;
+            rooms.get(user.roomId).users.set(socket.id, user); // Update user in room's map
+            console.log(`User ${user.name} (${socket.id}) video toggled to: ${isEnabled}`);
+            socket.to(user.roomId).emit('user-video-toggle', {
+                userId: socket.id,
+                isEnabled
+            });
+        }
+    });
+
+    // Event: `screen-share-toggle` - User starts/stops screen sharing.
+    socket.on('screen-share-toggle', ({ isEnabled }) => {
+        const user = users.get(socket.id);
+        if (user && user.roomId && rooms.has(user.roomId)) {
+            user.isScreenSharing = isEnabled;
+            rooms.get(user.roomId).users.set(socket.id, user); // Update user in room's map
+            console.log(`User ${user.name} (${socket.id}) screen share toggled to: ${isEnabled}`);
+            socket.to(user.roomId).emit('user-screen-share-toggle', {
+                userId: socket.id,
+                isEnabled
+            });
+        }
+    });
+
+    // Event: `chat-message` - User sends a chat message.
+    socket.on('chat-message', ({ message, roomId }) => {
+        const user = users.get(socket.id);
+        if (user && user.roomId === roomId) {
+            const messageData = {
+                id: Date.now(), // Simple unique ID
+                userId: socket.id,
+                userName: user.name,
+                message,
+                timestamp: new Date().toISOString()
+            };
+            io.to(roomId).emit('chat-message', messageData); // Emit to all in room, including sender
+            console.log(`Chat in room ${roomId} from ${user.name}: "${message}"`);
+        } else {
+            console.warn(`Attempted chat message from ${socket.id} in wrong room or user not found.`);
+        }
+    });
+
+    // Event: `leave-room` - User explicitly leaves a room.
+    socket.on('leave-room', () => {
+        handleUserLeave(socket);
+    });
+
+    // Event: `disconnect` - User connection drops unexpectedly.
+    socket.on('disconnect', (reason) => {
+        console.log(`User disconnected: ${socket.id}, Reason: ${reason}`);
+        handleUserLeave(socket); // Use the common cleanup function
+    });
+});
+
+// --- Serve Static Frontend in Production ---
+if (process.env.NODE_ENV === 'production') {
+    const possibleClientPaths = [
+        path.join(__dirname, '../client/build'),
+        path.join(__dirname, 'client/build'),
+        path.join(__dirname, 'build')
+    ];
+
+    let clientBuildPath;
+    for (const p of possibleClientPaths) {
+        if (require('fs').existsSync(p) && require('fs').existsSync(path.join(p, 'index.html'))) {
+            clientBuildPath = p;
+            break;
+        }
+    }
+
+    if (clientBuildPath) {
+        console.log(`Serving static client files from: ${clientBuildPath}`);
+        app.use(express.static(clientBuildPath));
+
+        app.get('*', (req, res) => {
+            res.sendFile(path.join(clientBuildPath, 'index.html'));
+        });
+    } else {
+        console.error('ERROR: Client build directory not found for production server!');
+        app.get('*', (req, res) => {
+            res.status(500).send('<h1>Server Error: Frontend not found</h1><p>Please ensure the client build is correctly deployed.</p>');
+        });
+    }
+} else {
+    app.get('*', (req, res) => {
+        res.json({
+            message: 'Server running in development mode.',
+            info: 'Frontend is expected to be served by React development server (e.g., on port 3000).'
+        });
+    });
+}
+
+// --- Start Server ---
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, '0.0.0.0', () => { // Listen on '0.0.0.0' to be accessible externally
+    const serverIPs = getServerIPs();
+    console.log(`\n🚀 Video Call Signaling Server is listening on port ${PORT}`);
+    console.log(`Local Client URL: ${process.env.FRONTEND_URL || "http://localhost:3000"}`);
+    console.log(`\n📡 Server accessible at:`);
+    console.log(`   - Local: http://localhost:${PORT}`);
+    serverIPs.forEach(ip => {
+        console.log(`   - Network: http://${ip}:${PORT}`);
+    });
+    console.log(`\n💡 Ensure firewall allows connections on port ${PORT} for network access.`);
+    console.log(`🌐 For Vercel deployment, ensure your FRONTEND_URL is correctly set and CORS is configured.`);
+});
+
+// --- Graceful Shutdown ---
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+    console.log('SIGTERM signal received: Closing HTTP server.');
+    server.close(() => {
+        console.log('HTTP server closed.');
+        process.exit(0);
+    });
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+    console.log('SIGINT signal received: Closing HTTP server.');
+    server.close(() => {
+        console.log('HTTP server closed.');
+        process.exit(0);
+    });
 });
