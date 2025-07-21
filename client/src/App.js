@@ -18,7 +18,7 @@ const AppContainer = styled.div`
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #333;
 `;
-
+const checking="justchecking"
 const MainContent = styled.main`
   padding-top: 80px; /* Account for fixed navbar */
   min-height: calc(100vh - 80px);
